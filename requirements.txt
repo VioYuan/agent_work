@@ -1,0 +1,10 @@
+langchain==0.1.12
+langchain-community==0.0.38
+langchain-core==0.1.32
+openai==1.14.0
+streamlit==1.32.2
+python-dotenv==1.0.1
+requests==2.31.0
+beautifulsoup4==4.12.3
+pandas==2.2.1
+numpy==1.26.4 

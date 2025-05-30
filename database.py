@@ -79,13 +79,32 @@ class Database:
             
             row = cursor.fetchone()
             if row:
+                # Handle None values safely for JSON fields
+                social_links = row[3]
+                if social_links is not None:
+                    try:
+                        social_links = json.loads(social_links)
+                    except (json.JSONDecodeError, TypeError):
+                        social_links = []
+                else:
+                    social_links = []
+                
+                user_context = row[4]
+                if user_context is not None:
+                    try:
+                        user_context = json.loads(user_context)
+                    except (json.JSONDecodeError, TypeError):
+                        user_context = {}
+                else:
+                    user_context = {}
+                
                 return {
                     'id': user_id,
                     'name': row[0],
                     'age': row[1],
                     'interests': row[2],
-                    'social_links': json.loads(row[3]),
-                    'user_context': json.loads(row[4])
+                    'social_links': social_links,
+                    'user_context': user_context
                 }
             return None
 
@@ -122,10 +141,20 @@ class Database:
             
             conversations = []
             for row in cursor.fetchall():
+                # Handle None quality_metrics safely
+                quality_metrics = row[2]
+                if quality_metrics is not None:
+                    try:
+                        quality_metrics = json.loads(quality_metrics)
+                    except (json.JSONDecodeError, TypeError):
+                        quality_metrics = {}
+                else:
+                    quality_metrics = {}
+                
                 conversations.append({
                     'message': row[0],
                     'response': row[1],
-                    'quality_metrics': json.loads(row[2]),
+                    'quality_metrics': quality_metrics,
                     'satisfaction_score': row[3],
                     'timestamp': row[4]
                 })

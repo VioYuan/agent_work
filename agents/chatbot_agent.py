@@ -8,8 +8,8 @@ from .base_agent import BaseAgent
 import json
 
 class ResponseGenerationTool(BaseTool):
-    name = "response_generation"
-    description = "Generates a response based on user message and context"
+    name: str = "response_generation"
+    description: str = "Generates a response based on user message and context"
     llm: Any = Field(default=None)
     
     def __init__(self, llm: Any, **kwargs):

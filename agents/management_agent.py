@@ -8,8 +8,8 @@ from pydantic import Field
 import json
 
 class ConversationQualityTool(BaseTool):
-    name = "conversation_quality"
-    description = "Analyzes conversation quality and provides metrics"
+    name: str = "conversation_quality"
+    description: str = "Analyzes conversation quality and provides metrics"
     llm: BaseLanguageModel = Field(default=None)
     
     def __init__(self, llm: BaseLanguageModel, **kwargs):
@@ -56,8 +56,8 @@ class ConversationQualityTool(BaseTool):
         return self._run(conversation)
 
 class SatisfactionAssessmentTool(BaseTool):
-    name = "satisfaction_assessment"
-    description = "Assesses user satisfaction based on conversation and context"
+    name: str = "satisfaction_assessment"
+    description: str = "Assesses user satisfaction based on conversation and context"
     llm: BaseLanguageModel = Field(default=None)
     
     def __init__(self, llm: BaseLanguageModel, **kwargs):
@@ -96,8 +96,8 @@ class SatisfactionAssessmentTool(BaseTool):
         return self._run(conversation, user_context)
 
 class RecommendationTool(BaseTool):
-    name = "recommendation_generation"
-    description = "Generates recommendations based on quality metrics and satisfaction"
+    name: str = "recommendation_generation"
+    description: str = "Generates recommendations based on quality metrics and satisfaction"
     llm: BaseLanguageModel = Field(default=None)
     
     def __init__(self, llm: BaseLanguageModel, **kwargs):
@@ -150,7 +150,7 @@ class ManagementAgent(BaseAgent):
         )
         
         self.satisfaction_history: List[Dict[str, Any]] = []
-    
+     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         conversation = input_data.get("conversation", [])
         user_context = input_data.get("user_context", {})

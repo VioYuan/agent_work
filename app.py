@@ -6,6 +6,8 @@ from agents.management_agent import ManagementAgent
 from database import Database
 import json
 import os
+import time
+from datetime import datetime
 
 # Load environment variables only if OPENAI_API_KEY is not already set
 if not os.environ.get("OPENAI_API_KEY"):
@@ -53,21 +55,27 @@ if 'user_id' not in st.session_state:
     st.session_state.user_id = None
 if 'social_analysis_results' not in st.session_state:
     st.session_state.social_analysis_results = {}
+if 'chat_loading' not in st.session_state:
+    st.session_state.chat_loading = False
+if 'last_analysis_time' not in st.session_state:
+    st.session_state.last_analysis_time = None
+if 'last_input' not in st.session_state:
+    st.session_state.last_input = ""
 
 def main():
-    st.title("🔍 AI-Powered Social Media & Chat System")
+    st.title("🌸 Hana-chan's Social Media & Chat System")
     
     # Sidebar for navigation
     page = st.sidebar.selectbox("Choose a page", [
         "🏠 Profile Setup", 
-        "💬 Chat", 
+        "💬 Hana Chat", 
         "📱 Social Media Analysis",
         "👥 User Management"
     ])
     
     if page == "🏠 Profile Setup":
         show_profile_setup()
-    elif page == "💬 Chat":
+    elif page == "💬 Hana Chat":
         show_chat()
     elif page == "📱 Social Media Analysis":
         show_social_media_analysis()
@@ -240,7 +248,11 @@ def show_user_management():
     if users:
         st.subheader("Registered Users")
         for user in users:
-            with st.expander(f"{user['name']} (Age: {user['age']})"):
+            # Handle missing keys gracefully
+            user_name = user.get('name', 'Unknown User')
+            user_age = user.get('age', 'Unknown')
+            
+            with st.expander(f"{user_name} (Age: {user_age})"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -248,31 +260,78 @@ def show_user_management():
                         user_profile = db.get_user_profile(user['id'])
                         if user_profile:
                             st.session_state.user_id = user['id']
-                            st.session_state.user_context = user_profile['user_context']
-                            st.session_state.conversation_history = []
+                            st.session_state.user_context = user_profile.get('user_context', {})
                             st.rerun()
                 
                 with col2:
-                    if st.button(f"Delete Profile", key=f"delete_{user['id']}"):
-                        if db.delete_user_profile(user['id']):
-                            st.success(f"Successfully deleted {user['name']}'s profile")
-                            st.rerun()
-                        else:
-                            st.error("Failed to delete profile")
+                    if st.button(f"Delete", key=f"delete_{user['id']}"):
+                        db.delete_user(user['id'])
+                        st.rerun()
                 
-                # Show recent conversations
-                conversations = db.get_user_conversations(user['id'])
-                if conversations:
-                    st.subheader("Recent Conversations")
-                    for conv in conversations:
-                        st.write(f"**User:** {conv['message']}")
-                        st.write(f"**Assistant:** {conv['response']}")
-                        st.write(f"**Satisfaction Score:** {conv['satisfaction_score']:.2f}")
-                        st.write("---")
+                # Show user details with safe key access
+                interests = user.get('interests', 'Not specified')
+                st.write(f"**Interests:** {interests}")
+                
+                social_links = user.get('social_links', [])
+                if social_links:
+                    st.write(f"**Social Links:** {len(social_links)} profiles")
+                    for i, link in enumerate(social_links[:3], 1):  # Show first 3
+                        st.write(f"  {i}. {link}")
+                    if len(social_links) > 3:
+                        st.write(f"  ... and {len(social_links) - 3} more")
+                else:
+                    st.write("**Social Links:** None")
+                
+                # Show user context if available (without nested expander)
+                user_context = user.get('user_context', {})
+                if user_context:
+                    st.markdown("**User Context Summary:**")
+                    if isinstance(user_context, dict):
+                        if 'profile_analysis' in user_context:
+                            st.write("🔍 **Profile Analysis:**")
+                            profile_text = str(user_context['profile_analysis'])
+                            st.write(profile_text[:200] + "..." if len(profile_text) > 200 else profile_text)
+                        if 'social_analysis' in user_context:
+                            st.write("📱 **Social Analysis:**")
+                            social_text = str(user_context['social_analysis'])
+                            st.write(social_text[:200] + "..." if len(social_text) > 200 else social_text)
+                    else:
+                        st.write("Context available but not in expected format")
+                
+                # Show button to view full context
+                if user_context:
+                    if st.button(f"View Full Context", key=f"context_{user['id']}"):
+                        st.session_state[f"show_context_{user['id']}"] = True
+                        st.rerun()
+        
+        # Show full context outside of expanders if requested
+        for user in users:
+            if st.session_state.get(f"show_context_{user['id']}", False):
+                st.markdown("---")
+                st.subheader(f"Full Context for {user.get('name', 'Unknown User')}")
+                
+                user_context = user.get('user_context', {})
+                if isinstance(user_context, dict):
+                    if 'profile_analysis' in user_context:
+                        st.markdown("### 🔍 Profile Analysis")
+                        st.write(user_context['profile_analysis'])
+                    if 'social_analysis' in user_context:
+                        st.markdown("### 📱 Social Analysis")
+                        st.write(user_context['social_analysis'])
+                    if 'combined_context' in user_context:
+                        st.markdown("### 🎯 Combined Context")
+                        st.write(user_context['combined_context'])
+                else:
+                    st.write("Context not in expected format")
+                
+                if st.button(f"Hide Context", key=f"hide_context_{user['id']}"):
+                    st.session_state[f"show_context_{user['id']}"] = False
+                    st.rerun()
     else:
         st.info("No users registered yet.")
 
 async def process_user_profile(user_profile, social_links):
+    # Process with user agent
     result = await user_agent.process({
         "user_profile": user_profile,
         "social_links": social_links
@@ -280,153 +339,182 @@ async def process_user_profile(user_profile, social_links):
     return result
 
 def show_chat():
-    st.header("Chat Interface")
+    st.header("💬 Hana Chat")
     
     # Check if user is logged in
     if not st.session_state.user_id:
         st.warning("Please set up your profile first!")
         return
     
-    # Display user context if available
-    if st.session_state.user_context:
-        with st.expander("User Context"):
-            context = st.session_state.user_context
-            if isinstance(context, dict):
-                # Display profile analysis
-                if "profile_analysis" in context:
-                    st.subheader("Profile Summary")
-                    st.write(context["profile_analysis"])
-                
-                # Display social media insights
-                if "social_analysis" in context:
-                    st.subheader("Social Media Insights")
-                    st.write(context["social_analysis"])
-                
-                # Add a divider
-                st.markdown("---")
-                
-                # Display key points
-                st.subheader("Key Points")
-                if "combined_context" in context:
-                    # Split the combined context into bullet points
-                    points = context["combined_context"].split("\n")
-                    for point in points:
-                        if point.strip():
-                            st.markdown(f"• {point.strip()}")
+    # Get user profile for display
+    user_profile = db.get_user_profile(st.session_state.user_id)
+    user_name = user_profile['name'] if user_profile else "User"
+    
+    # Social media style chat header
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                color: white; padding: 20px; border-radius: 15px; margin-bottom: 20px; text-align: center;">
+        <h2>💬 Chat with Hana-chan</h2>
+        <p>Hey {user_name}! 👋 Let's have a conversation!</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Chat container with social media styling
+    chat_container = st.container()
+    
+    with chat_container:
+        # Display conversation history with social media styling
+        for i, message in enumerate(st.session_state.conversation_history):
+            if message["role"] == "user":
+                # User message - right aligned, blue bubble
+                st.markdown(f"""
+                <div style="display: flex; justify-content: flex-end; margin: 10px 0;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                color: white; padding: 12px 16px; border-radius: 18px; 
+                                max-width: 70%; word-wrap: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        {message['content']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
             else:
-                st.write("No context available")
+                # AI message - left aligned, gray bubble
+                st.markdown(f"""
+                <div style="display: flex; justify-content: flex-start; margin: 10px 0;">
+                    <div style="background: #f0f2f5; color: #1c1e21; padding: 12px 16px; 
+                                border-radius: 18px; max-width: 70%; word-wrap: break-word; 
+                                box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <strong>🌸 Hana-chan:</strong> {message['content']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
     
-    # Chat interface
-    user_input = st.text_input("Type your message here...")
+    # Show typing indicator if loading
+    if st.session_state.chat_loading:
+        st.markdown("""
+        <div style="display: flex; justify-content: flex-start; margin: 10px 0;">
+            <div style="background: #f0f2f5; color: #1c1e21; padding: 12px 16px; 
+                        border-radius: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <strong>🌸 Hana-chan:</strong> <span style="color: #666;">typing...</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    if st.button("Send"):
-        if user_input:
-            # Process message with chatbot agent immediately
-            asyncio.run(process_message(user_input))
+    # Chat input with social media styling
+    st.markdown("---")
     
-    # Display conversation history
-    for message in st.session_state.conversation_history:
-        if message["role"] == "user":
-            st.write(f"👤 You: {message['content']}")
-        else:
-            st.write(f"🤖 Assistant: {message['content']}")
+    # Initialize message counter if not exists
+    if 'message_counter' not in st.session_state:
+        st.session_state.message_counter = 0
     
-    # Display satisfaction metrics if available
-    if st.session_state.satisfaction_metrics:
-        with st.expander("Conversation Quality Metrics"):
+    # Input area with dynamic key to force refresh
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        user_input = st.text_input(
+            "💬 Type your message...",
+            placeholder="What's on your mind?",
+            key=f"chat_input_{st.session_state.message_counter}",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        send_button = st.button("📤 Send", use_container_width=True, type="primary")
+    
+    # Handle message sending
+    if send_button and user_input:
+        # Increment counter to create new input field
+        st.session_state.message_counter += 1
+        
+        # Set loading state
+        st.session_state.chat_loading = True
+        
+        # Process message immediately
+        asyncio.run(process_message_async(user_input))
+        
+        # Clear loading state
+        st.session_state.chat_loading = False
+        
+        # Rerun to update the chat
+        st.rerun()
+    
+    # Show conversation analysis status (non-blocking)
+    if st.session_state.last_analysis_time:
+        time_since = time.time() - st.session_state.last_analysis_time
+        if time_since < 300:  # Show for 5 minutes after analysis
+            st.info(f"📊 Conversation analysis completed {int(time_since)}s ago")
+    
+    # Show analysis results in expander (not always visible)
+    if st.session_state.satisfaction_metrics and st.session_state.last_analysis_time and time.time() - st.session_state.last_analysis_time < 300:
+        with st.expander("📊 Recent Conversation Analysis"):
             metrics = st.session_state.satisfaction_metrics
             if isinstance(metrics, dict):
-                # Display quality metrics
-                if "quality_metrics" in metrics:
-                    st.subheader("Quality Metrics")
-                    for key, value in metrics["quality_metrics"].items():
-                        st.metric(key.title(), f"{value:.2f}")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if "satisfaction_score" in metrics:
+                        st.metric("😊 Satisfaction", f"{metrics['satisfaction_score']:.1f}/10")
+                with col2:
+                    if "quality_metrics" in metrics and "engagement" in metrics["quality_metrics"]:
+                        st.metric("💬 Engagement", f"{metrics['quality_metrics']['engagement']:.1f}/10")
                 
-                # Display satisfaction score
-                if "satisfaction_score" in metrics:
-                    st.subheader("Satisfaction Score")
-                    st.metric("Overall Satisfaction", f"{metrics['satisfaction_score']:.2f}")
-                
-                # Display recommendations
                 if "recommendations" in metrics:
-                    st.subheader("Recommendations")
-                    for rec in metrics["recommendations"]:
+                    st.markdown("**💡 Suggestions:**")
+                    for rec in metrics["recommendations"][:3]:  # Show only top 3
                         st.markdown(f"• {rec}")
-            else:
-                st.json(metrics)
-    
-    # Show processing indicator if metrics are being calculated
-    if st.session_state.processing_metrics:
-        st.info("Calculating conversation quality metrics...")
-    
-    # Check if there's a pending metrics task
-    if st.session_state.metrics_task and st.session_state.metrics_task.done():
-        try:
-            result = st.session_state.metrics_task.result()
-            st.session_state.satisfaction_metrics = result
-            
-            # Save conversation to database
-            if st.session_state.conversation_history:
-                last_user_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
-                                    if msg['role'] == 'user'), None)
-                last_assistant_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
-                                        if msg['role'] == 'assistant'), None)
-                
-                if last_user_msg and last_assistant_msg:
-                    db.save_conversation(
-                        st.session_state.user_id,
-                        last_user_msg,
-                        last_assistant_msg,
-                        result.get("satisfaction_score", 0.0)
-                    )
-            
-            st.session_state.processing_metrics = False
-            st.session_state.metrics_task = None
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error processing metrics: {str(e)}")
-            st.session_state.processing_metrics = False
-            st.session_state.metrics_task = None
 
-async def process_message(message):
-    # Process with chatbot agent
-    response = await chatbot_agent.process({
-        "message": message,
-        "context": st.session_state.user_context or {},
-        "history": st.session_state.conversation_history
-    })
-    
-    # Update conversation history
-    st.session_state.conversation_history.append({"role": "user", "content": message})
-    st.session_state.conversation_history.append({"role": "assistant", "content": response})
-    
-    # Start metrics processing in background
-    st.session_state.processing_metrics = True
-    st.session_state.metrics_task = asyncio.create_task(process_metrics())
-
-async def process_metrics():
-    # Process with management agent
-    result = await management_agent.process({
-        "conversation": st.session_state.conversation_history,
-        "user_context": st.session_state.user_context or {}
-    })
-    
-    # Save conversation to database
-    if st.session_state.conversation_history:
-        last_user_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
-                            if msg['role'] == 'user'), None)
-        last_assistant_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
-                                if msg['role'] == 'assistant'), None)
+async def process_message_async(message):
+    """Process message asynchronously without blocking the UI"""
+    try:
+        # Process with chatbot agent
+        response = await chatbot_agent.process({
+            "message": message,
+            "context": st.session_state.user_context or {},
+            "history": st.session_state.conversation_history
+        })
         
-        if last_user_msg and last_assistant_msg:
-            db.save_conversation(
-                st.session_state.user_id,
-                last_user_msg,
-                last_assistant_msg,
-                result.get("satisfaction_score", 0.0)
-            )
-    
-    return result
+        # Update conversation history
+        st.session_state.conversation_history.append({"role": "user", "content": message})
+        st.session_state.conversation_history.append({"role": "assistant", "content": response})
+        
+        # Start background analysis (non-blocking)
+        asyncio.create_task(background_conversation_analysis())
+        
+    except Exception as e:
+        st.error(f"Error processing message: {str(e)}")
+
+async def background_conversation_analysis():
+    """Run conversation analysis in the background"""
+    try:
+        # Wait a bit to avoid overwhelming the system
+        await asyncio.sleep(2)
+        
+        # Process with management agent
+        result = await management_agent.process({
+            "conversation": st.session_state.conversation_history,
+            "user_context": st.session_state.user_context or {}
+        })
+        
+        # Update session state
+        st.session_state.satisfaction_metrics = result
+        st.session_state.last_analysis_time = time.time()
+        
+        # Save conversation to database
+        if st.session_state.conversation_history:
+            last_user_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
+                                if msg['role'] == 'user'), None)
+            last_assistant_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
+                                    if msg['role'] == 'assistant'), None)
+            
+            if last_user_msg and last_assistant_msg:
+                db.save_conversation(
+                    st.session_state.user_id,
+                    last_user_msg,
+                    last_assistant_msg,
+                    result.get("satisfaction_score", 0.0)
+                )
+        
+    except Exception as e:
+        # Silently handle errors in background task
+        pass
 
 def show_social_media_analysis():
     st.header("📱 Social Media URL Analysis")
@@ -591,19 +679,26 @@ def display_social_media_results(results):
         
         # Overall insights
         if 'overall_insights' in results:
-            st.markdown("### 🔮 Overall Insights")
+            st.markdown("### 🎯 Overall Insights")
             st.write(results['overall_insights'])
+        
+        # Recommendations
+        if 'recommendations' in results:
+            st.markdown("### 💡 Recommendations")
+            for rec in results['recommendations']:
+                st.markdown(f"• {rec}")
+    else:
+        st.write(results)
 
 async def analyze_social_media_urls(urls):
     """Analyze social media URLs using the user agent"""
     try:
-        # Use the social media analysis tool from user agent
-        social_tool = user_agent.tools[1]  # SocialMediaAnalysisTool is the second tool
-        result = await social_tool._arun(urls)
+        result = await user_agent.process({
+            "social_media_urls": urls
+        })
         return result
     except Exception as e:
-        st.error(f"Error analyzing URLs: {str(e)}")
-        return f"Analysis failed: {str(e)}"
+        return f"Error analyzing URLs: {str(e)}"
 
 if __name__ == "__main__":
     main() 

@@ -165,8 +165,37 @@ class Database:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, name, age FROM users')
-            return [{'id': row[0], 'name': row[1], 'age': row[2]} for row in cursor.fetchall()]
+            cursor.execute('SELECT id, name, age, interests, social_links, user_context FROM users')
+            users = []
+            for row in cursor.fetchall():
+                # Handle None values safely for JSON fields
+                social_links = row[4]
+                if social_links is not None:
+                    try:
+                        social_links = json.loads(social_links)
+                    except (json.JSONDecodeError, TypeError):
+                        social_links = []
+                else:
+                    social_links = []
+                
+                user_context = row[5]
+                if user_context is not None:
+                    try:
+                        user_context = json.loads(user_context)
+                    except (json.JSONDecodeError, TypeError):
+                        user_context = {}
+                else:
+                    user_context = {}
+                
+                users.append({
+                    'id': row[0], 
+                    'name': row[1], 
+                    'age': row[2],
+                    'interests': row[3],
+                    'social_links': social_links,
+                    'user_context': user_context
+                })
+            return users
 
     def delete_user_profile(self, user_id: int) -> bool:
         """Delete a user profile and associated conversations."""
@@ -184,4 +213,8 @@ class Database:
             return True
         except Exception as e:
             print(f"Error deleting user profile: {str(e)}")
-            return False 
+            return False
+
+    def delete_user(self, user_id: int) -> bool:
+        """Delete a user (alias for delete_user_profile)."""
+        return self.delete_user_profile(user_id) 

@@ -4,6 +4,8 @@ from agents.user_agent import UserAgent
 from agents.chatbot_agent import ChatbotAgent
 from agents.management_agent import ManagementAgent
 from database import Database
+from auth import SimpleAuth, show_login_page
+from admin_config import AdminConfig
 import json
 import os
 import time
@@ -39,6 +41,8 @@ user_agent = UserAgent()
 chatbot_agent = ChatbotAgent()
 management_agent = ManagementAgent()
 db = Database()
+auth = SimpleAuth()
+admin_config = AdminConfig()
 
 # Initialize session state
 if 'user_context' not in st.session_state:
@@ -61,17 +65,59 @@ if 'last_analysis_time' not in st.session_state:
     st.session_state.last_analysis_time = None
 if 'last_input' not in st.session_state:
     st.session_state.last_input = ""
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
 
 def main():
+    # Check authentication first
+    if not auth.is_authenticated():
+        show_login_page()
+        return
+    
     st.title("🌸 Hana-chan's Social Media & Chat System")
     
+    # Get current user info for display
+    current_user = auth.get_current_user()
+    if current_user:
+        # User info in sidebar
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 👤 User Profile")
+        
+        # Display user avatar if available
+        if current_user.get('picture'):
+            st.sidebar.image(current_user['picture'], width=60)
+        
+        st.sidebar.write(f"**{current_user['name']}**")
+        st.sidebar.write(f"📧 {current_user.get('email', 'No email')}")
+        
+        # Logout button
+        if st.sidebar.button("Logout"):
+            auth.logout()
+            st.rerun()
+    
     # Sidebar for navigation
-    page = st.sidebar.selectbox("Choose a page", [
+    navigation_options = [
         "🏠 Profile Setup", 
         "💬 Hana Chat", 
-        "📱 Social Media Analysis",
-        "👥 User Management"
-    ])
+        "📱 Social Media Analysis"
+    ]
+    
+    # Check if current user is admin
+    current_user = auth.get_current_user()
+    is_admin = False
+    if current_user and current_user.get('email'):
+        is_admin = admin_config.is_admin(current_user['email'])
+    
+    # Add admin options if user is admin
+    if is_admin:
+        navigation_options.extend([
+            "👥 User Management",
+            "⚙️ Admin Panel"
+        ])
+    else:
+        navigation_options.append("👤 My Account")
+    
+    page = st.sidebar.selectbox("Choose a page", navigation_options)
     
     if page == "🏠 Profile Setup":
         show_profile_setup()
@@ -79,48 +125,176 @@ def main():
         show_chat()
     elif page == "📱 Social Media Analysis":
         show_social_media_analysis()
-    else:
+    elif page == "👥 User Management" and is_admin:
         show_user_management()
+    elif page == "⚙️ Admin Panel" and is_admin:
+        show_admin_panel()
+    elif page == "👤 My Account":
+        show_my_account()
+    else:
+        st.error("Access denied or page not found")
 
 def show_profile_setup():
     st.header("👤 User Profile Setup")
     
-    # Check if user is already logged in
-    if st.session_state.user_id:
-        user_profile = db.get_user_profile(st.session_state.user_id)
-        if user_profile:
-            st.success(f"✅ Welcome back, {user_profile['name']}!")
-            
-            # Show current social media links if available
-            if user_profile.get('social_links'):
-                st.subheader("📱 Your Social Media Profiles")
-                for i, link in enumerate(user_profile['social_links'], 1):
-                    st.write(f"{i}. {link}")
-                
-                if st.button("🔄 Re-analyze Social Media"):
-                    with st.spinner("Re-analyzing your social media profiles..."):
-                        result = asyncio.run(analyze_social_media_urls(user_profile['social_links']))
-                        st.session_state.social_analysis_results = result
-                        st.success("✅ Social media analysis updated!")
-                        st.rerun()
-            
-            if st.button("🚪 Logout"):
-                st.session_state.user_id = None
-                st.session_state.user_context = {}
-                st.session_state.conversation_history = []
-                st.session_state.social_analysis_results = {}
-                st.rerun()
-            return
+    # Get current user
+    current_user = auth.get_current_user()
+    if not current_user:
+        st.error("User not found!")
+        return
     
-    st.markdown("**Create your profile to get personalized AI interactions based on your social media presence**")
+    # Show current profile information
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if current_user.get('picture'):
+            st.image(current_user['picture'], width=100)
+    
+    with col2:
+        st.markdown(f"### Welcome, {current_user['name']}! 👋")
+        st.markdown(f"**Email:** {current_user.get('email', 'No email')}")
+        st.markdown(f"**Member since:** {current_user.get('created_at', 'Unknown')}")
+        
+        # Show conversation count
+        conv_count = db.get_user_conversation_count(current_user['id'])
+        st.markdown(f"**Total conversations:** {conv_count}")
+    
+    st.markdown("---")
+    
+    # Check if user has completed profile setup
+    if current_user.get('interests') and current_user.get('social_links'):
+        st.success("✅ Your profile is set up!")
+        
+        # Show current social media links if available
+        if current_user.get('social_links'):
+            st.subheader("📱 Your Social Media Profiles")
+            for i, link in enumerate(current_user['social_links'], 1):
+                st.write(f"{i}. {link}")
+            
+            if st.button("Re-analyze Social Media"):
+                with st.spinner("Re-analyzing your social media profiles..."):
+                    result = asyncio.run(analyze_social_media_urls(current_user['social_links']))
+                    st.session_state.social_analysis_results = result
+                    st.success("✅ Social media analysis updated!")
+                    st.rerun()
+        
+        # Profile update form
+        with st.expander("✏️ Update Your Profile"):
+            with st.form("profile_update_form"):
+                st.subheader("👤 Update Personal Information")
+                
+                interests = st.text_area(
+                    "Interests and Hobbies", 
+                    value=current_user.get('interests', ''),
+                    help="Tell us about your interests, hobbies, and what you're passionate about"
+                )
+                
+                age = st.number_input(
+                    "Age", 
+                    min_value=0, 
+                    max_value=120, 
+                    value=current_user.get('age', 0) if current_user.get('age') else 0,
+                    help="Your age (optional)"
+                )
+                
+                st.subheader("📱 Update Social Media Links")
+                
+                # Pre-fill existing social media links
+                existing_links = current_user.get('social_links', [])
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    instagram = st.text_input(
+                        "📸 Instagram Profile", 
+                        value=next((link for link in existing_links if 'instagram.com' in link), ''),
+                        placeholder="https://www.instagram.com/username/"
+                    )
+                    twitter = st.text_input(
+                        "🐦 Twitter/X Profile", 
+                        value=next((link for link in existing_links if 'twitter.com' in link or 'x.com' in link), ''),
+                        placeholder="https://twitter.com/username"
+                    )
+                
+                with col2:
+                    threads = st.text_input(
+                        "🧵 Threads Profile", 
+                        value=next((link for link in existing_links if 'threads.com' in link), ''),
+                        placeholder="https://www.threads.com/@username"
+                    )
+                    linkedin = st.text_input(
+                        "💼 LinkedIn Profile", 
+                        value=next((link for link in existing_links if 'linkedin.com' in link), ''),
+                        placeholder="https://www.linkedin.com/in/username/"
+                    )
+                
+                if st.form_submit_button("Update Profile", type="primary"):
+                    # Collect all social media links
+                    social_links = [link for link in [instagram, twitter, threads, linkedin] if link.strip()]
+                    
+                    # Update profile
+                    profile_updates = {
+                        'interests': interests,
+                        'age': age if age > 0 else None,
+                        'social_links': social_links
+                    }
+                    
+                    # Process with user agent if social links changed
+                    if social_links != existing_links:
+                        with st.spinner("🔄 Re-analyzing your profile..."):
+                            result = asyncio.run(process_user_profile({
+                                'name': current_user['name'],
+                                'age': age,
+                                'interests': interests
+                            }, social_links))
+                            
+                            profile_updates['user_context'] = {
+                                "profile_analysis": str(result["profile_analysis"]),
+                                "social_analysis": str(result["social_analysis"]),
+                                "combined_context": str(result["combined_context"])
+                            }
+                    
+                    # Save updates to database
+                    if db.update_user_profile(current_user['id'], profile_updates):
+                        st.success("✅ Profile updated successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update profile.")
+        
+        # Password change for password-based accounts
+        if current_user.get('auth_type') == 'password':
+            with st.expander("🔒 Change Password"):
+                with st.form("password_change_form"):
+                    st.subheader("🔒 Update Your Password")
+                    old_password = st.text_input("Current Password", type="password")
+                    new_password = st.text_input("New Password", type="password")
+                    confirm_password = st.text_input("Confirm New Password", type="password")
+                    
+                    if st.form_submit_button("Change Password", type="secondary"):
+                        if not old_password or not new_password:
+                            st.error("❌ Please fill in all fields")
+                        elif new_password != confirm_password:
+                            st.error("❌ New passwords do not match")
+                        else:
+                            success, message = auth.change_password(current_user['id'], old_password, new_password)
+                            if success:
+                                st.success(f"✅ {message}")
+                            else:
+                                st.error(f"❌ {message}")
+        
+        return
+    
+    # Initial profile setup for new users
+    st.markdown("**Complete your profile to get personalized AI interactions based on your social media presence**")
     
     # User profile form
     with st.form("user_profile_form"):
         st.subheader("👤 Personal Information")
-        name = st.text_input("Name", help="Your full name or preferred name")
-        age = st.number_input("Age", min_value=0, max_value=120, help="Your age (optional)")
+        
         interests = st.text_area("Interests and Hobbies", 
                                 help="Tell us about your interests, hobbies, and what you're passionate about")
+        
+        age = st.number_input("Age", min_value=0, max_value=120, help="Your age (optional)")
         
         st.subheader("📱 Social Media Links")
         st.markdown("*Add your social media profiles for AI-powered personality analysis*")
@@ -152,46 +326,15 @@ def show_profile_setup():
                 help="Your LinkedIn profile URL"
             )
         
-        # Additional social media options
-        with st.expander("🔗 More Social Media Platforms"):
-            facebook = st.text_input(
-                "📘 Facebook Profile", 
-                placeholder="https://www.facebook.com/username"
-            )
-            tiktok = st.text_input(
-                "🎵 TikTok Profile", 
-                placeholder="https://www.tiktok.com/@username"
-            )
-            youtube = st.text_input(
-                "📺 YouTube Channel", 
-                placeholder="https://www.youtube.com/c/channelname"
-            )
-        
-        # Quick example buttons
-        st.markdown("**📋 Quick Examples:**")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            if st.form_submit_button("📸 Use Instagram Example", use_container_width=True):
-                instagram = "https://www.instagram.com/lalalalisa_m/"
-        with col2:
-            if st.form_submit_button("🧵 Use Threads Example", use_container_width=True):
-                threads = "https://www.threads.com/@zuck"
-        with col3:
-            if st.form_submit_button("🐦 Use Twitter Example", use_container_width=True):
-                twitter = "https://twitter.com/elonmusk"
-        with col4:
-            if st.form_submit_button("💼 Use LinkedIn Example", use_container_width=True):
-                linkedin = "https://www.linkedin.com/in/satyanadella/"
-        
-        submitted = st.form_submit_button("🚀 Create Profile & Analyze", type="primary")
+        submitted = st.form_submit_button("Complete Profile Setup", type="primary")
         
         if submitted:
-            if not name or not interests:
-                st.error("❌ Please fill in at least your name and interests.")
+            if not interests:
+                st.error("❌ Please fill in your interests.")
                 return
             
             # Collect all social media links
-            social_links = [link for link in [instagram, twitter, threads, linkedin, facebook, tiktok, youtube] if link.strip()]
+            social_links = [link for link in [instagram, twitter, threads, linkedin] if link.strip()]
             
             if not social_links:
                 st.warning("⚠️ No social media links provided. Profile will be created with basic information only.")
@@ -200,8 +343,8 @@ def show_profile_setup():
             with st.spinner("🔄 Processing your profile and analyzing social media..."):
                 # Process user profile
                 user_profile = {
-                    "name": name,
-                    "age": age,
+                    "name": current_user['name'],
+                    "age": age if age > 0 else None,
                     "interests": interests
                 }
                 
@@ -220,28 +363,41 @@ def show_profile_setup():
                     social_analysis = asyncio.run(analyze_social_media_urls(social_links))
                     st.session_state.social_analysis_results = social_analysis
                 
-                # Save to database
-                user_id = db.save_user_profile({
-                    **user_profile,
-                    "social_links": social_links,
-                    "user_context": processed_result
-                })
+                # Update user profile
+                profile_updates = {
+                    'age': age if age > 0 else None,
+                    'interests': interests,
+                    'social_links': social_links,
+                    'user_context': processed_result
+                }
                 
-                # Update session state
-                st.session_state.user_id = user_id
-                st.session_state.user_context = processed_result
-            
-            st.success("✅ Profile processed and saved successfully!")
-            
-            # Show quick summary
-            if social_links:
-                st.info(f"📊 Analyzed {len(social_links)} social media profile(s)")
-                st.markdown("**🔍 Go to 'Social Media Analysis' page to see detailed insights!**")
-            
-            st.rerun()
+                if db.update_user_profile(current_user['id'], profile_updates):
+                    # Update session state
+                    st.session_state.user_context = processed_result
+                    st.success("✅ Profile setup completed successfully!")
+                    
+                    # Show quick summary
+                    if social_links:
+                        st.info(f"📊 Analyzed {len(social_links)} social media profile(s)")
+                        st.markdown("**🔍 Go to 'Social Media Analysis' page to see detailed insights!**")
+                    
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save profile.")
 
 def show_user_management():
-    st.header("User Management")
+    st.header("👥 User Management")
+    
+    # Verify admin access
+    current_user = auth.get_current_user()
+    if not current_user or not admin_config.is_admin(current_user['email']):
+        st.error("🚫 Access denied. Admin privileges required.")
+        st.info("This page is only accessible to system administrators.")
+        return
+    
+    # Admin-only view
+    st.success(f"👋 Admin access granted for {current_user['name']}")
+    st.info("🔧 **Admin View**: This page shows all users for management purposes.")
     
     # Show all users
     users = db.get_all_users()
@@ -250,23 +406,30 @@ def show_user_management():
         for user in users:
             # Handle missing keys gracefully
             user_name = user.get('name', 'Unknown User')
+            user_email = user.get('email', 'No email')
             user_age = user.get('age', 'Unknown')
             
-            with st.expander(f"{user_name} (Age: {user_age})"):
+            with st.expander(f"{user_name} ({user_email})"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    if st.button(f"Load Profile", key=f"load_{user['id']}"):
-                        user_profile = db.get_user_profile(user['id'])
-                        if user_profile:
-                            st.session_state.user_id = user['id']
-                            st.session_state.user_context = user_profile.get('user_context', {})
-                            st.rerun()
+                    st.markdown("**👤 User Details:**")
+                    st.write(f"**ID:** {user['id']}")
+                    st.write(f"**Name:** {user_name}")
+                    st.write(f"**Email:** {user_email}")
+                    st.write(f"**Age:** {user_age}")
+                    st.write(f"**Google ID:** {user.get('google_id', 'Not linked')}")
+                    st.write(f"**Created:** {user.get('created_at', 'Unknown')}")
+                    st.write(f"**Last Login:** {user.get('last_login', 'Unknown')}")
                 
                 with col2:
-                    if st.button(f"Delete", key=f"delete_{user['id']}"):
-                        db.delete_user(user['id'])
-                        st.rerun()
+                    # Show user avatar if available
+                    if user.get('picture'):
+                        st.image(user['picture'], width=80)
+                    
+                    # Conversation count
+                    conv_count = db.get_user_conversation_count(user['id'])
+                    st.metric("💬 Total Conversations", conv_count)
                 
                 # Show user details with safe key access
                 interests = user.get('interests', 'Not specified')
@@ -298,11 +461,24 @@ def show_user_management():
                     else:
                         st.write("Context available but not in expected format")
                 
-                # Show button to view full context
-                if user_context:
-                    if st.button(f"View Full Context", key=f"context_{user['id']}"):
-                        st.session_state[f"show_context_{user['id']}"] = True
-                        st.rerun()
+                # Admin actions
+                st.markdown("---")
+                col_a, col_b = st.columns(2)
+                
+                with col_a:
+                    if st.button(f"Delete User", key=f"delete_{user['id']}", type="secondary"):
+                        if db.delete_user(user['id']):
+                            st.success(f"Deleted user {user_name}")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete user")
+                
+                with col_b:
+                    # Show button to view full context
+                    if user_context:
+                        if st.button(f"View Full Context", key=f"context_{user['id']}"):
+                            st.session_state[f"show_context_{user['id']}"] = True
+                            st.rerun()
         
         # Show full context outside of expanders if requested
         for user in users:
@@ -338,17 +514,260 @@ async def process_user_profile(user_profile, social_links):
     })
     return result
 
+def show_my_account():
+    st.header("👤 My Account")
+    
+    # Get current user
+    current_user = auth.get_current_user()
+    if not current_user:
+        st.error("User not found!")
+        return
+    
+    # Show current profile information
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if current_user.get('picture'):
+            st.image(current_user['picture'], width=100)
+        else:
+            st.markdown("📸 No profile picture")
+    
+    with col2:
+        st.markdown(f"### Welcome, {current_user['name']}! 👋")
+        st.markdown(f"**Email:** {current_user.get('email', 'No email')}")
+        st.markdown(f"**Account Type:** {current_user.get('auth_type', 'Unknown').title()}")
+        st.markdown(f"**Member since:** {current_user.get('created_at', 'Unknown')}")
+        st.markdown(f"**Last login:** {current_user.get('last_login', 'Unknown')}")
+        
+        # Show conversation count
+        conv_count = db.get_user_conversation_count(current_user['id'])
+        st.markdown(f"**Total conversations:** {conv_count}")
+    
+    st.markdown("---")
+    
+    # Account Information
+    st.subheader("📊 Account Details")
+    
+    # Personal Information
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Personal Information:**")
+        st.write(f"**Age:** {current_user.get('age', 'Not specified')}")
+        interests = current_user.get('interests', 'Not specified')
+        st.write(f"**Interests:** {interests}")
+    
+    with col2:
+        st.markdown("**Social Media Links:**")
+        social_links = current_user.get('social_links', [])
+        if social_links:
+            for i, link in enumerate(social_links, 1):
+                st.write(f"{i}. {link}")
+        else:
+            st.write("No social media links added")
+    
+    # User Context Summary (if available)
+    user_context = current_user.get('user_context', {})
+    if user_context:
+        st.subheader("🔍 Profile Analysis Summary")
+        
+        if isinstance(user_context, dict):
+            if 'profile_analysis' in user_context:
+                with st.expander("📋 Profile Analysis"):
+                    profile_text = str(user_context['profile_analysis'])
+                    st.write(profile_text[:500] + "..." if len(profile_text) > 500 else profile_text)
+            
+            if 'social_analysis' in user_context:
+                with st.expander("📱 Social Media Analysis"):
+                    social_text = str(user_context['social_analysis'])
+                    st.write(social_text[:500] + "..." if len(social_text) > 500 else social_text)
+    
+    # Recent Conversations
+    st.subheader("💬 Recent Conversations")
+    recent_conversations = db.get_user_conversations(current_user['id'], limit=5)
+    
+    if recent_conversations:
+        for i, conv in enumerate(recent_conversations, 1):
+            with st.expander(f"Conversation {i} - {conv['timestamp']}"):
+                st.markdown("**Your message:**")
+                st.write(conv['message'])
+                st.markdown("**Hana-chan's response:**")
+                st.write(conv['response'])
+                if conv.get('satisfaction_score'):
+                    st.metric("Satisfaction Score", f"{conv['satisfaction_score']:.1f}/10")
+    else:
+        st.info("No conversations yet. Start chatting with Hana-chan!")
+    
+    # Quick actions
+    st.markdown("---")
+    st.subheader("⚡ Quick Actions")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("Edit Profile", use_container_width=True):
+            st.info("Go to 'Profile Setup' page to edit your profile")
+    
+    with col2:
+        if st.button("Start Chat", use_container_width=True):
+            st.info("Go to 'Hana Chat' page to start chatting")
+    
+    with col3:
+        if st.button("Analyze Social Media", use_container_width=True):
+            st.info("Go to 'Social Media Analysis' page")
+
+def show_admin_panel():
+    st.header("⚙️ Admin Panel")
+    
+    # Get current user to verify admin status
+    current_user = auth.get_current_user()
+    if not current_user or not admin_config.is_admin(current_user['email']):
+        st.error("🚫 Access denied. Admin privileges required.")
+        return
+    
+    st.success(f"👋 Welcome, Admin {current_user['name']}!")
+    
+    # Admin Statistics
+    st.subheader("📊 System Statistics")
+    
+    # Get system stats
+    all_users = db.get_all_users()
+    total_users = len(all_users)
+    admin_users = admin_config.get_active_admins()
+    
+    # Calculate total conversations
+    total_conversations = 0
+    for user in all_users:
+        total_conversations += db.get_user_conversation_count(user['id'])
+    
+    # Display metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Users", total_users)
+    with col2:
+        st.metric("Admin Users", len(admin_users))
+    with col3:
+        st.metric("Total Conversations", total_conversations)
+    with col4:
+        avg_conversations = round(total_conversations / total_users, 1) if total_users > 0 else 0
+        st.metric("Avg Conversations/User", avg_conversations)
+    
+    st.markdown("---")
+    
+    # Admin Management
+    st.subheader("👥 Admin Management")
+    
+    # Current Admins
+    st.markdown("**Current Admins:**")
+    admins = admin_config.get_all_admins()
+    
+    for admin in admins:
+        col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+        
+        with col1:
+            status_icon = "✅" if admin['is_active'] else "❌"
+            st.write(f"{status_icon} {admin['email']}")
+        with col2:
+            st.write(f"Added by: {admin['added_by']}")
+        with col3:
+            st.write(f"Date: {admin['created_at']}")
+        with col4:
+            if admin['is_active'] and admin['email'] != current_user['email']:
+                if st.button("Remove", key=f"remove_admin_{admin['email']}", type="secondary"):
+                    if admin_config.remove_admin(admin['email']):
+                        st.success(f"Removed admin privileges from {admin['email']}")
+                        st.rerun()
+                    else:
+                        st.error("Failed to remove admin")
+    
+    # Add New Admin
+    st.markdown("**Add New Admin:**")
+    with st.form("add_admin_form"):
+        new_admin_email = st.text_input("Email address", placeholder="admin@example.com")
+        add_admin_submitted = st.form_submit_button("Add Admin", type="primary")
+        
+        if add_admin_submitted:
+            if not new_admin_email:
+                st.error("Please enter an email address")
+            elif admin_config.add_admin(new_admin_email, current_user['email']):
+                st.success(f"Added {new_admin_email} as admin")
+                st.rerun()
+            else:
+                st.error("Failed to add admin (email might already be an admin)")
+    
+    st.markdown("---")
+    
+    # User Account Types Breakdown
+    st.subheader("📈 User Analysis")
+    
+    # Count by auth type
+    password_users = len([u for u in all_users if u.get('auth_type') == 'password'])
+    google_users = len([u for u in all_users if u.get('auth_type') == 'google'])
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("Password Users", password_users)
+        st.metric("Google Users", google_users)
+    
+    with col2:
+        # Recent user registrations
+        recent_users = sorted(all_users, key=lambda x: x.get('created_at', ''), reverse=True)[:5]
+        st.markdown("**Recent Registrations:**")
+        for user in recent_users:
+            st.write(f"• {user['name']} ({user.get('auth_type', 'unknown')}) - {user.get('created_at', 'Unknown')}")
+    
+    # System Actions
+    st.markdown("---")
+    st.subheader("🛠️ System Actions")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("Export User Data", use_container_width=True):
+            st.info("Feature coming soon: Export user data to CSV")
+    
+    with col2:
+        if st.button("System Health Check", use_container_width=True):
+            st.success("✅ System is running normally")
+            st.info(f"Database: Connected\nAdmin users: {len(admin_users)}\nTotal users: {total_users}")
+    
+    with col3:
+        if st.button("View System Logs", use_container_width=True):
+            st.info("Feature coming soon: System logs viewer")
+
 def show_chat():
     st.header("💬 Hana Chat")
     
-    # Check if user is logged in
-    if not st.session_state.user_id:
-        st.warning("Please set up your profile first!")
+    # Get current authenticated user
+    current_user = auth.get_current_user()
+    if not current_user:
+        st.error("User not found!")
         return
     
-    # Get user profile for display
-    user_profile = db.get_user_profile(st.session_state.user_id)
-    user_name = user_profile['name'] if user_profile else "User"
+    # Check if user has completed profile setup
+    if not current_user.get('interests'):
+        st.warning("⚠️ Please complete your profile setup first!")
+        st.markdown("👉 Go to the **Profile Setup** page to get started.")
+        return
+    
+    # Load user's conversation history
+    if not st.session_state.conversation_history:
+        # Load conversation history from database
+        conversations = db.get_user_conversations(current_user['id'], limit=20)
+        chat_history = []
+        for conv in conversations:
+            chat_history.append({"role": "user", "content": conv['message']})
+            chat_history.append({"role": "assistant", "content": conv['response']})
+        # Reverse to show oldest first
+        st.session_state.conversation_history = list(reversed(chat_history))
+    
+    # Load user context
+    if not st.session_state.user_context and current_user.get('user_context'):
+        st.session_state.user_context = current_user['user_context']
+    
+    user_name = current_user['name']
     
     # Social media style chat header
     st.markdown(f"""
@@ -418,7 +837,7 @@ def show_chat():
         )
     
     with col2:
-        send_button = st.button("📤 Send", use_container_width=True, type="primary")
+        send_button = st.button("Send", use_container_width=True, type="primary")
     
     # Handle message sending
     if send_button and user_input:
@@ -464,6 +883,12 @@ def show_chat():
 async def process_message_async(message):
     """Process message asynchronously without blocking the UI"""
     try:
+        # Get current user for saving to database
+        current_user = auth.get_current_user()
+        if not current_user:
+            st.error("User not authenticated!")
+            return
+        
         # Process with chatbot agent
         response = await chatbot_agent.process({
             "message": message,
@@ -484,6 +909,11 @@ async def process_message_async(message):
 async def background_conversation_analysis():
     """Run conversation analysis in the background"""
     try:
+        # Get current user
+        current_user = auth.get_current_user()
+        if not current_user:
+            return
+        
         # Wait a bit to avoid overwhelming the system
         await asyncio.sleep(2)
         
@@ -497,7 +927,7 @@ async def background_conversation_analysis():
         st.session_state.satisfaction_metrics = result
         st.session_state.last_analysis_time = time.time()
         
-        # Save conversation to database
+        # Save conversation to database for the current user
         if st.session_state.conversation_history:
             last_user_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
                                 if msg['role'] == 'user'), None)
@@ -506,7 +936,7 @@ async def background_conversation_analysis():
             
             if last_user_msg and last_assistant_msg:
                 db.save_conversation(
-                    st.session_state.user_id,
+                    current_user['id'],
                     last_user_msg,
                     last_assistant_msg,
                     result.get("satisfaction_score", 0.0)
@@ -580,16 +1010,16 @@ def show_social_media_analysis():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("📸 Instagram Example"):
+        if st.button("Instagram Example"):
             st.session_state.example_url = "https://www.instagram.com/lalalalisa_m/"
     with col2:
-        if st.button("🐦 Twitter Example"):
+        if st.button("Twitter Example"):
             st.session_state.example_url = "https://twitter.com/elonmusk"
     with col3:
-        if st.button("🧵 Threads Example"):
+        if st.button("Threads Example"):
             st.session_state.example_url = "https://www.threads.com/@zuck"
     with col4:
-        if st.button("💼 LinkedIn Example"):
+        if st.button("LinkedIn Example"):
             st.session_state.example_url = "https://www.linkedin.com/in/satyanadella/"
     
     # Show example URL if selected
@@ -600,7 +1030,7 @@ def show_social_media_analysis():
             st.rerun()
     
     # Analysis button
-    if st.button("🚀 Analyze Social Media Profiles", type="primary"):
+    if st.button("Analyze Social Media Profiles", type="primary"):
         urls = [url for url in [url1, url2, url3, url4] if url.strip()]
         
         if not urls:

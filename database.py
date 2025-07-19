@@ -1,6 +1,6 @@
 import sqlite3
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import os
 from datetime import datetime
 
@@ -50,11 +50,31 @@ class Database:
                 )
             ''')
             
+            # Create sentiment analysis table for daily tracking
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sentiment_analysis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    conversation_id INTEGER,
+                    sentiment_score REAL,
+                    emotions_detected TEXT,
+                    engagement_level REAL,
+                    mood_progression TEXT,
+                    main_topics TEXT,
+                    emotional_summary TEXT,
+                    analysis_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    date DATE,
+                    FOREIGN KEY (user_id) REFERENCES users (id),
+                    FOREIGN KEY (conversation_id) REFERENCES conversations (id)
+                )
+            ''')
+            
             # Add indexes for better performance (only after ensuring columns exist)
             try:
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations (user_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_sentiment_user_date ON sentiment_analysis (user_id, date)')
             except sqlite3.OperationalError:
                 # If indexes fail, continue - they'll be created after migration
                 pass
@@ -75,6 +95,7 @@ class Database:
                 ('google_id', 'TEXT'),
                 ('picture', 'TEXT'),
                 ('auth_type', 'TEXT DEFAULT "password"'),
+                ('occupation', 'TEXT'),
                 ('last_login', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
             ]
             
@@ -116,13 +137,14 @@ class Database:
                 # Google authentication user
                 cursor.execute('''
                     INSERT OR REPLACE INTO users 
-                    (name, email, google_id, picture, auth_type, age, interests, social_links, user_context, last_login)
-                    VALUES (?, ?, ?, ?, 'google', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (name, email, google_id, picture, auth_type, occupation, age, interests, social_links, user_context, last_login)
+                    VALUES (?, ?, ?, ?, 'google', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ''', (
                     profile.get('name'),
                     email,
                     google_id,
                     profile.get('picture'),
+                    profile.get('occupation'),
                     profile.get('age'),
                     profile.get('interests'),
                     social_links_json,
@@ -137,13 +159,14 @@ class Database:
                 # Password authentication user
                 cursor.execute('''
                     INSERT INTO users 
-                    (name, email, password_hash, auth_type, age, interests, social_links, user_context)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (name, email, password_hash, auth_type, occupation, age, interests, social_links, user_context)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     profile.get('name'),
                     email,
                     profile.get('password_hash'),
                     profile.get('auth_type', 'password'),
+                    profile.get('occupation'),
                     profile.get('age'),
                     profile.get('interests'),
                     social_links_json,
@@ -160,7 +183,7 @@ class Database:
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT id, name, email, password_hash, google_id, picture, auth_type, age, interests, social_links, user_context, created_at, last_login
+                SELECT id, name, email, password_hash, google_id, picture, auth_type, occupation, age, interests, social_links, user_context, created_at, last_login
                 FROM users
                 WHERE id = ?
             ''', (user_id,))
@@ -168,7 +191,7 @@ class Database:
             row = cursor.fetchone()
             if row:
                 # Handle None values safely for JSON fields
-                social_links = row[9]
+                social_links = row[10]  # Updated index
                 if social_links is not None:
                     try:
                         social_links = json.loads(social_links)
@@ -177,7 +200,7 @@ class Database:
                 else:
                     social_links = []
                 
-                user_context = row[10]
+                user_context = row[11]  # Updated index
                 if user_context is not None:
                     try:
                         user_context = json.loads(user_context)
@@ -194,12 +217,13 @@ class Database:
                     'google_id': row[4],
                     'picture': row[5],
                     'auth_type': row[6],
-                    'age': row[7],
-                    'interests': row[8],
+                    'occupation': row[7],
+                    'age': row[8],
+                    'interests': row[9],
                     'social_links': social_links,
                     'user_context': user_context,
-                    'created_at': row[11],
-                    'last_login': row[12]
+                    'created_at': row[12],  # Updated index
+                    'last_login': row[13]   # Updated index
                 }
             return None
 
@@ -209,7 +233,7 @@ class Database:
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT id, name, email, password_hash, google_id, picture, auth_type, age, interests, social_links, user_context, created_at, last_login
+                SELECT id, name, email, password_hash, google_id, picture, auth_type, occupation, age, interests, social_links, user_context, created_at, last_login
                 FROM users
                 WHERE email = ?
             ''', (email,))
@@ -217,7 +241,7 @@ class Database:
             row = cursor.fetchone()
             if row:
                 # Handle None values safely for JSON fields
-                social_links = row[9]
+                social_links = row[10]  # Updated index
                 if social_links is not None:
                     try:
                         social_links = json.loads(social_links)
@@ -226,7 +250,7 @@ class Database:
                 else:
                     social_links = []
                 
-                user_context = row[10]
+                user_context = row[11]  # Updated index
                 if user_context is not None:
                     try:
                         user_context = json.loads(user_context)
@@ -243,12 +267,13 @@ class Database:
                     'google_id': row[4],
                     'picture': row[5],
                     'auth_type': row[6],
-                    'age': row[7],
-                    'interests': row[8],
+                    'occupation': row[7],
+                    'age': row[8],
+                    'interests': row[9],
                     'social_links': social_links,
                     'user_context': user_context,
-                    'created_at': row[11],
-                    'last_login': row[12]
+                    'created_at': row[12],
+                    'last_login': row[13]
                 }
             return None
 
@@ -290,8 +315,8 @@ class Database:
             ''', (user_id,))
             conn.commit()
 
-    def save_conversation(self, user_id: int, message: str, response: str, satisfaction_score: float):
-        """Save a conversation exchange for a specific user."""
+    def save_conversation(self, user_id: int, message: str, response: str, satisfaction_score: float) -> int:
+        """Save a conversation exchange for a specific user and return conversation ID."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
@@ -306,19 +331,26 @@ class Database:
                 satisfaction_score
             ))
             
+            conversation_id = cursor.lastrowid
             conn.commit()
+            return conversation_id
 
     def get_user_conversations(self, user_id: int, limit: int = 10) -> list:
         """Retrieve recent conversations for a specific user only."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
+            # Get the most recent conversations first, then reverse to show oldest first
             cursor.execute('''
                 SELECT message, response, quality_metrics, satisfaction_score, timestamp
-                FROM conversations
-                WHERE user_id = ?
-                ORDER BY timestamp DESC
-                LIMIT ?
+                FROM (
+                    SELECT message, response, quality_metrics, satisfaction_score, timestamp
+                    FROM conversations
+                    WHERE user_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                )
+                ORDER BY timestamp ASC
             ''', (user_id, limit))
             
             conversations = []
@@ -341,6 +373,66 @@ class Database:
                     'timestamp': row[4]
                 })
             return conversations
+
+    def get_user_conversations_by_session(self, user_id: int, limit: int = 5) -> List[Dict[str, Any]]:
+        """Retrieve conversations grouped by login session with aggregate scores."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # First, get session metadata
+                cursor.execute('''
+                    SELECT DATE(timestamp) as session_date,
+                           COUNT(*) as conversation_count,
+                           AVG(satisfaction_score) as avg_satisfaction,
+                           MIN(timestamp) as session_start,
+                           MAX(timestamp) as session_end
+                    FROM conversations
+                    WHERE user_id = ?
+                    GROUP BY DATE(timestamp)
+                    ORDER BY session_date DESC
+                    LIMIT ?
+                ''', (user_id, limit))
+                
+                sessions = []
+                for row in cursor.fetchall():
+                    session_date = row[0]
+                    
+                    # Get individual conversations for this session in chronological order
+                    cursor.execute('''
+                        SELECT message, response, timestamp
+                        FROM conversations
+                        WHERE user_id = ? AND DATE(timestamp) = ?
+                        ORDER BY timestamp ASC
+                    ''', (user_id, session_date))
+                    
+                    # Create conversation pairs in correct order
+                    conversation_pairs = []
+                    for conv_row in cursor.fetchall():
+                        conversation_pairs.append({
+                            'message': conv_row[0].strip(),
+                            'response': conv_row[1].strip(),
+                            'timestamp': conv_row[2]
+                        })
+                    
+                    # Calculate session metrics
+                    total_chars = sum(len(msg['message']) + len(msg['response']) for msg in conversation_pairs)
+                    
+                    sessions.append({
+                        'session_date': session_date,
+                        'conversation_count': row[1],
+                        'avg_satisfaction': round(row[2], 2) if row[2] else 0.0,
+                        'conversation_pairs': conversation_pairs,
+                        'session_start': row[3],
+                        'session_end': row[4],
+                        'total_characters': total_chars,
+                        'is_long_session': len(conversation_pairs) > 5 or total_chars > 2000
+                    })
+                
+                return sessions
+        except Exception as e:
+            print(f"Error getting user conversations by session: {str(e)}")
+            return []
 
     def get_all_users(self) -> list:
         """Retrieve all users (admin function)."""
@@ -438,4 +530,113 @@ class Database:
             return True
         except Exception as e:
             print(f"Error updating user profile: {str(e)}")
-            return False 
+            return False
+
+    def save_sentiment_analysis(self, user_id: int, conversation_id: int, sentiment_data: Dict[str, Any]) -> bool:
+        """Save sentiment analysis data for a conversation."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    INSERT INTO sentiment_analysis 
+                    (user_id, conversation_id, sentiment_score, emotions_detected, engagement_level, 
+                     mood_progression, main_topics, emotional_summary, date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    user_id,
+                    conversation_id,
+                    sentiment_data.get('sentiment_score', 0.5),
+                    json.dumps(sentiment_data.get('emotions_detected', [])),
+                    sentiment_data.get('engagement_level', 0.5),
+                    sentiment_data.get('mood_progression', ''),
+                    json.dumps(sentiment_data.get('main_topics', [])),
+                    sentiment_data.get('emotional_summary', ''),
+                    sentiment_data.get('date', datetime.now().date().isoformat())
+                ))
+                
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error saving sentiment analysis: {str(e)}")
+            return False
+
+    def get_daily_sentiment_summary(self, user_id: int, days: int = 7) -> List[Dict[str, Any]]:
+        """Get daily sentiment summaries for the last N days."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT date, 
+                           AVG(sentiment_score) as avg_sentiment,
+                           AVG(engagement_level) as avg_engagement,
+                           COUNT(*) as conversation_count,
+                           GROUP_CONCAT(emotional_summary, ' | ') as daily_summary
+                    FROM sentiment_analysis 
+                    WHERE user_id = ? AND date >= date('now', '-{} days')
+                    GROUP BY date 
+                    ORDER BY date DESC
+                '''.format(days), (user_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'date': row[0],
+                        'avg_sentiment': round(row[1], 2) if row[1] else 0.5,
+                        'avg_engagement': round(row[2], 2) if row[2] else 0.5,
+                        'conversation_count': row[3],
+                        'daily_summary': row[4] or 'No conversations today'
+                    })
+                
+                return results
+        except Exception as e:
+            print(f"Error getting daily sentiment summary: {str(e)}")
+            return []
+
+    def get_recent_sentiment_analysis(self, user_id: int, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get recent sentiment analyses for a user."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT s.sentiment_score, s.emotions_detected, s.engagement_level,
+                           s.mood_progression, s.main_topics, s.emotional_summary,
+                           s.analysis_date, c.message, c.response
+                    FROM sentiment_analysis s
+                    JOIN conversations c ON s.conversation_id = c.id
+                    WHERE s.user_id = ?
+                    ORDER BY s.analysis_date DESC
+                    LIMIT ?
+                ''', (user_id, limit))
+                
+                results = []
+                for row in cursor.fetchall():
+                    emotions = row[1]
+                    topics = row[4]
+                    
+                    # Parse JSON fields safely
+                    try:
+                        emotions = json.loads(emotions) if emotions else []
+                        topics = json.loads(topics) if topics else []
+                    except:
+                        emotions = []
+                        topics = []
+                    
+                    results.append({
+                        'sentiment_score': row[0],
+                        'emotions_detected': emotions,
+                        'engagement_level': row[2],
+                        'mood_progression': row[3],
+                        'main_topics': topics,
+                        'emotional_summary': row[5],
+                        'analysis_date': row[6],
+                        'user_message': row[7],
+                        'ai_response': row[8]
+                    })
+                
+                return results
+        except Exception as e:
+            print(f"Error getting recent sentiment analysis: {str(e)}")
+            return [] 

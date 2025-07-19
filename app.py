@@ -61,12 +61,22 @@ if 'social_analysis_results' not in st.session_state:
     st.session_state.social_analysis_results = {}
 if 'chat_loading' not in st.session_state:
     st.session_state.chat_loading = False
+if 'pending_message' not in st.session_state:
+    st.session_state.pending_message = None
 if 'last_analysis_time' not in st.session_state:
     st.session_state.last_analysis_time = None
 if 'last_input' not in st.session_state:
     st.session_state.last_input = ""
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+if 'cached_session_conversations' not in st.session_state:
+    st.session_state.cached_session_conversations = None
+if 'cached_user_id' not in st.session_state:
+    st.session_state.cached_user_id = None
+if 'cached_daily_summaries' not in st.session_state:
+    st.session_state.cached_daily_summaries = None
+if 'cached_recent_sentiment' not in st.session_state:
+    st.session_state.cached_recent_sentiment = None
 
 def main():
     # Check authentication first
@@ -93,6 +103,11 @@ def main():
         # Logout button
         if st.sidebar.button("Logout"):
             auth.logout()
+            # Clear all cached data on logout
+            st.session_state.cached_user_id = None
+            st.session_state.cached_session_conversations = None
+            st.session_state.cached_daily_summaries = None
+            st.session_state.cached_recent_sentiment = None
             st.rerun()
     
     # Sidebar for navigation
@@ -177,213 +192,170 @@ def show_profile_setup():
                     st.session_state.social_analysis_results = result
                     st.success("✅ Social media analysis updated!")
                     st.rerun()
-        
-        # Profile update form
-        with st.expander("✏️ Update Your Profile"):
-            with st.form("profile_update_form"):
-                st.subheader("👤 Update Personal Information")
-                
-                interests = st.text_area(
-                    "Interests and Hobbies", 
-                    value=current_user.get('interests', ''),
-                    help="Tell us about your interests, hobbies, and what you're passionate about"
-                )
-                
-                age = st.number_input(
-                    "Age", 
-                    min_value=0, 
-                    max_value=120, 
-                    value=current_user.get('age', 0) if current_user.get('age') else 0,
-                    help="Your age (optional)"
-                )
-                
-                st.subheader("📱 Update Social Media Links")
-                
-                # Pre-fill existing social media links
-                existing_links = current_user.get('social_links', [])
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    instagram = st.text_input(
-                        "📸 Instagram Profile", 
-                        value=next((link for link in existing_links if 'instagram.com' in link), ''),
-                        placeholder="https://www.instagram.com/username/"
-                    )
-                    twitter = st.text_input(
-                        "🐦 Twitter/X Profile", 
-                        value=next((link for link in existing_links if 'twitter.com' in link or 'x.com' in link), ''),
-                        placeholder="https://twitter.com/username"
-                    )
-                
-                with col2:
-                    threads = st.text_input(
-                        "🧵 Threads Profile", 
-                        value=next((link for link in existing_links if 'threads.com' in link), ''),
-                        placeholder="https://www.threads.com/@username"
-                    )
-                    linkedin = st.text_input(
-                        "💼 LinkedIn Profile", 
-                        value=next((link for link in existing_links if 'linkedin.com' in link), ''),
-                        placeholder="https://www.linkedin.com/in/username/"
-                    )
-                
-                if st.form_submit_button("Update Profile", type="primary"):
-                    # Collect all social media links
-                    social_links = [link for link in [instagram, twitter, threads, linkedin] if link.strip()]
-                    
-                    # Update profile
-                    profile_updates = {
-                        'interests': interests,
-                        'age': age if age > 0 else None,
-                        'social_links': social_links
-                    }
-                    
-                    # Process with user agent if social links changed
-                    if social_links != existing_links:
-                        with st.spinner("🔄 Re-analyzing your profile..."):
-                            result = asyncio.run(process_user_profile({
-                                'name': current_user['name'],
-                                'age': age,
-                                'interests': interests
-                            }, social_links))
-                            
-                            profile_updates['user_context'] = {
-                                "profile_analysis": str(result["profile_analysis"]),
-                                "social_analysis": str(result["social_analysis"]),
-                                "combined_context": str(result["combined_context"])
-                            }
-                    
-                    # Save updates to database
-                    if db.update_user_profile(current_user['id'], profile_updates):
-                        st.success("✅ Profile updated successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to update profile.")
-        
-        # Password change for password-based accounts
-        if current_user.get('auth_type') == 'password':
-            with st.expander("🔒 Change Password"):
-                with st.form("password_change_form"):
-                    st.subheader("🔒 Update Your Password")
-                    old_password = st.text_input("Current Password", type="password")
-                    new_password = st.text_input("New Password", type="password")
-                    confirm_password = st.text_input("Confirm New Password", type="password")
-                    
-                    if st.form_submit_button("Change Password", type="secondary"):
-                        if not old_password or not new_password:
-                            st.error("❌ Please fill in all fields")
-                        elif new_password != confirm_password:
-                            st.error("❌ New passwords do not match")
-                        else:
-                            success, message = auth.change_password(current_user['id'], old_password, new_password)
-                            if success:
-                                st.success(f"✅ {message}")
-                            else:
-                                st.error(f"❌ {message}")
-        
-        return
     
-    # Initial profile setup for new users
-    st.markdown("**Complete your profile to get personalized AI interactions based on your social media presence**")
-    
-    # User profile form
-    with st.form("user_profile_form"):
-        st.subheader("👤 Personal Information")
-        
-        interests = st.text_area("Interests and Hobbies", 
-                                help="Tell us about your interests, hobbies, and what you're passionate about")
-        
-        age = st.number_input("Age", min_value=0, max_value=120, help="Your age (optional)")
-        
-        st.subheader("📱 Social Media Links")
-        st.markdown("*Add your social media profiles for AI-powered personality analysis*")
-        
-        # Enhanced social media inputs with better labels and examples
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            instagram = st.text_input(
-                "📸 Instagram Profile", 
-                placeholder="https://www.instagram.com/username/",
-                help="Your Instagram profile URL"
-            )
-            twitter = st.text_input(
-                "🐦 Twitter/X Profile", 
-                placeholder="https://twitter.com/username or https://x.com/username",
-                help="Your Twitter or X profile URL"
-            )
-        
-        with col2:
-            threads = st.text_input(
-                "🧵 Threads Profile", 
-                placeholder="https://www.threads.com/@username",
-                help="Your Threads profile URL (Meta's new platform)"
-            )
-            linkedin = st.text_input(
-                "💼 LinkedIn Profile", 
-                placeholder="https://www.linkedin.com/in/username/",
-                help="Your LinkedIn profile URL"
-            )
-        
-        submitted = st.form_submit_button("Complete Profile Setup", type="primary")
-        
-        if submitted:
-            if not interests:
-                st.error("❌ Please fill in your interests.")
-                return
+    # Profile update form - Always show this section for editing
+    with st.expander("✏️ Update Your Profile", expanded=not (current_user.get('interests') and current_user.get('social_links'))):
+        with st.form("profile_update_form"):
+            st.subheader("👤 Update Personal Information")
             
-            # Collect all social media links
-            social_links = [link for link in [instagram, twitter, threads, linkedin] if link.strip()]
+            # Add name field for editing
+            name = st.text_input(
+                "Full Name", 
+                value=current_user.get('name', ''),
+                help="Update your display name"
+            )
             
-            if not social_links:
-                st.warning("⚠️ No social media links provided. Profile will be created with basic information only.")
+            # Add occupation field
+            occupation_options = [
+                "Select your occupation...",
+                "Student",
+                "Software Engineer", 
+                "Teacher/Educator",
+                "Healthcare Worker",
+                "Artist/Creative Professional",
+                "Business Professional",
+                "Entrepreneur",
+                "Engineer (Non-Software)",
+                "Marketing/Sales",
+                "Finance/Accounting",
+                "Lawyer/Legal Professional",
+                "Researcher/Scientist",
+                "Designer (Graphic/UX/UI)",
+                "Writer/Journalist",
+                "Consultant",
+                "Manager/Executive",
+                "Customer Service",
+                "Retail/Service Industry",
+                "Government/Public Service",
+                "Non-Profit Worker",
+                "Freelancer/Self-Employed",
+                "Retired",
+                "Unemployed/Job Seeking",
+                "Other"
+            ]
             
-            # Show processing status
-            with st.spinner("🔄 Processing your profile and analyzing social media..."):
-                # Process user profile
-                user_profile = {
-                    "name": current_user['name'],
-                    "age": age if age > 0 else None,
-                    "interests": interests
-                }
+            current_occupation = current_user.get('occupation', '')
+            # Find the index of current occupation, default to 0 if not found
+            try:
+                occupation_index = occupation_options.index(current_occupation) if current_occupation in occupation_options else 0
+            except ValueError:
+                occupation_index = 0
+            
+            occupation = st.selectbox(
+                "Occupation", 
+                options=occupation_options,
+                index=occupation_index,
+                help="Choose your occupation or job type"
+            )
+            
+            interests = st.text_area(
+                "Interests and Hobbies", 
+                value=current_user.get('interests', ''),
+                help="Tell us about your interests, hobbies, and what you're passionate about"
+            )
+            
+            age = st.number_input(
+                "Age", 
+                min_value=0, 
+                max_value=120, 
+                value=current_user.get('age', 0) if current_user.get('age') else 0,
+                help="Your age (optional)"
+            )
+            
+            st.subheader("📱 Update Social Media Links")
+            
+            # Pre-fill existing social media links
+            existing_links = current_user.get('social_links', [])
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                instagram = st.text_input(
+                    "📸 Instagram Profile", 
+                    value=next((link for link in existing_links if 'instagram.com' in link), ''),
+                    placeholder="https://www.instagram.com/username/"
+                )
+                twitter = st.text_input(
+                    "🐦 Twitter/X Profile", 
+                    value=next((link for link in existing_links if 'twitter.com' in link or 'x.com' in link), ''),
+                    placeholder="https://twitter.com/username"
+                )
+            
+            with col2:
+                threads = st.text_input(
+                    "🧵 Threads Profile", 
+                    value=next((link for link in existing_links if 'threads.com' in link), ''),
+                    placeholder="https://www.threads.com/@username"
+                )
+                linkedin = st.text_input(
+                    "💼 LinkedIn Profile", 
+                    value=next((link for link in existing_links if 'linkedin.com' in link), ''),
+                    placeholder="https://www.linkedin.com/in/username/"
+                )
+            
+            if st.form_submit_button("Update Profile", type="primary"):
+                # Validate name
+                if not name or len(name.strip()) < 2:
+                    st.error("❌ Name must be at least 2 characters long")
+                    return
                 
-                # Process with user agent (includes social media analysis)
-                result = asyncio.run(process_user_profile(user_profile, social_links))
+                # Collect all social media links
+                social_links = [link.strip() for link in [instagram, twitter, threads, linkedin] 
+                              if link and link.strip()]
                 
-                # Convert LLM responses to strings if needed
-                processed_result = {
-                    "profile_analysis": str(result["profile_analysis"]),
-                    "social_analysis": str(result["social_analysis"]),
-                    "combined_context": str(result["combined_context"])
-                }
-                
-                # Save social media analysis results to session state
-                if social_links:
-                    social_analysis = asyncio.run(analyze_social_media_urls(social_links))
-                    st.session_state.social_analysis_results = social_analysis
-                
-                # Update user profile
+                # Update profile
                 profile_updates = {
+                    'name': name.strip() if name else current_user.get('name', ''),
+                    'occupation': occupation if occupation != "Select your occupation..." else '',
+                    'interests': interests.strip() if interests else '',
                     'age': age if age > 0 else None,
-                    'interests': interests,
-                    'social_links': social_links,
-                    'user_context': processed_result
+                    'social_links': social_links
                 }
                 
+                # Process with user agent if social links changed
+                existing_links = current_user.get('social_links', [])
+                if social_links != existing_links or not current_user.get('user_context'):
+                    with st.spinner("🔄 Re-analyzing your profile..."):
+                        result = asyncio.run(process_user_profile({
+                            'name': name.strip(),
+                            'occupation': occupation if occupation != "Select your occupation..." else '',
+                            'age': age,
+                            'interests': interests
+                        }, social_links))
+                        
+                        profile_updates['user_context'] = {
+                            "profile_analysis": str(result["profile_analysis"]),
+                            "social_analysis": str(result["social_analysis"]),
+                            "combined_context": str(result["combined_context"])
+                        }
+                
+                # Save updates to database
                 if db.update_user_profile(current_user['id'], profile_updates):
-                    # Update session state
-                    st.session_state.user_context = processed_result
-                    st.success("✅ Profile setup completed successfully!")
-                    
-                    # Show quick summary
-                    if social_links:
-                        st.info(f"📊 Analyzed {len(social_links)} social media profile(s)")
-                        st.markdown("**🔍 Go to 'Social Media Analysis' page to see detailed insights!**")
-                    
+                    st.success("✅ Profile updated successfully!")
                     st.rerun()
                 else:
-                    st.error("❌ Failed to save profile.")
+                    st.error("❌ Failed to update profile.")
+    
+    # Password change for password-based accounts
+    if current_user.get('auth_type') in ['password', 'hybrid']:
+        with st.expander("🔒 Change Password"):
+            with st.form("password_change_form"):
+                st.subheader("🔒 Update Your Password")
+                old_password = st.text_input("Current Password", type="password")
+                new_password = st.text_input("New Password", type="password")
+                confirm_password = st.text_input("Confirm New Password", type="password")
+                
+                if st.form_submit_button("Change Password", type="secondary"):
+                    if not old_password or not new_password:
+                        st.error("❌ Please fill in all fields")
+                    elif new_password != confirm_password:
+                        st.error("❌ New passwords do not match")
+                    else:
+                        success, message = auth.change_password(current_user['id'], old_password, new_password)
+                        if success:
+                            st.success(f"✅ {message}")
+                        else:
+                            st.error(f"❌ {message}")
 
 def show_user_management():
     st.header("👥 User Management")
@@ -417,6 +389,7 @@ def show_user_management():
                     st.write(f"**ID:** {user['id']}")
                     st.write(f"**Name:** {user_name}")
                     st.write(f"**Email:** {user_email}")
+                    st.write(f"**Occupation:** {user.get('occupation', 'Not specified')}")
                     st.write(f"**Age:** {user_age}")
                     st.write(f"**Google ID:** {user.get('google_id', 'Not linked')}")
                     st.write(f"**Created:** {user.get('created_at', 'Unknown')}")
@@ -553,6 +526,7 @@ def show_my_account():
     
     with col1:
         st.markdown("**Personal Information:**")
+        st.write(f"**Occupation:** {current_user.get('occupation', 'Not specified')}")
         st.write(f"**Age:** {current_user.get('age', 'Not specified')}")
         interests = current_user.get('interests', 'Not specified')
         st.write(f"**Interests:** {interests}")
@@ -583,20 +557,228 @@ def show_my_account():
                     st.write(social_text[:500] + "..." if len(social_text) > 500 else social_text)
     
     # Recent Conversations
-    st.subheader("💬 Recent Conversations")
-    recent_conversations = db.get_user_conversations(current_user['id'], limit=5)
+    st.subheader("💬 Recent Chat Sessions")
     
-    if recent_conversations:
-        for i, conv in enumerate(recent_conversations, 1):
-            with st.expander(f"Conversation {i} - {conv['timestamp']}"):
-                st.markdown("**Your message:**")
-                st.write(conv['message'])
-                st.markdown("**Hana-chan's response:**")
-                st.write(conv['response'])
-                if conv.get('satisfaction_score'):
-                    st.metric("Satisfaction Score", f"{conv['satisfaction_score']:.1f}/10")
+    # Add refresh button
+    col_refresh, col_info = st.columns([1, 4])
+    with col_refresh:
+        if st.button("🔄 Refresh", help="Refresh chat sessions from database"):
+            st.session_state.cached_session_conversations = db.get_user_conversations_by_session(current_user['id'], limit=5)
+            st.session_state.cached_user_id = current_user['id']
+            st.rerun()
+    
+    with col_info:
+        if st.session_state.cached_session_conversations is not None:
+            st.caption("💡 Chat sessions are cached for better performance. Use refresh if needed.")
+    
+    # Check if we need to load session conversations from database
+    if (st.session_state.cached_session_conversations is None or 
+        st.session_state.cached_user_id != current_user['id']):
+        # Load session conversations from database only once per session
+        st.session_state.cached_session_conversations = db.get_user_conversations_by_session(current_user['id'], limit=5)
+        st.session_state.cached_user_id = current_user['id']
+    
+    session_conversations = st.session_state.cached_session_conversations
+    
+    if session_conversations:
+        for i, session in enumerate(session_conversations, 1):
+            # Create session header with metrics
+            session_date = session['session_date']
+            conv_count = session['conversation_count']
+            avg_score = session['avg_satisfaction']
+            
+            # Determine session quality emoji
+            if avg_score >= 8.0:
+                quality_emoji = "🌟"
+            elif avg_score >= 6.0:
+                quality_emoji = "😊"
+            elif avg_score >= 4.0:
+                quality_emoji = "😐"
+            else:
+                quality_emoji = "😕"
+            
+            # Session duration calculation
+            session_start = session['session_start']
+            session_end = session['session_end']
+            
+            with st.expander(f"{quality_emoji} Session {i} - {session_date} ({conv_count} chats, Score: {avg_score}/10)"):
+                # Session overview
+                col_stats1, col_stats2, col_stats3 = st.columns(3)
+                
+                with col_stats1:
+                    st.metric("💬 Total Chats", conv_count)
+                
+                with col_stats2:
+                    st.metric("⭐ Avg Score", f"{avg_score}/10")
+                
+                with col_stats3:
+                    if session_start and session_end:
+                        st.metric("⏰ Session Time", f"{session_start.split()[1][:5]} - {session_end.split()[1][:5]}")
+                
+                st.markdown("---")
+                
+                # Show conversations with smart truncation
+                conversation_pairs = session['conversation_pairs']
+                is_long = session['is_long_session']
+                
+                if is_long and len(conversation_pairs) > 3:
+                    # Show first 2 and last 1 conversations for long sessions
+                    st.markdown("**🔹 First conversations:**")
+                    for j, pair in enumerate(conversation_pairs[:2], 1):
+                        with st.container():
+                            st.markdown(f"**Chat {j}:**")
+                            st.markdown(f"**You:** {pair['message'][:200]}{'...' if len(pair['message']) > 200 else ''}")
+                            st.markdown(f"**Hana-chan:** {pair['response'][:200]}{'...' if len(pair['response']) > 200 else ''}")
+                            st.markdown("")
+                    
+                    # Show middle conversation count
+                    middle_count = len(conversation_pairs) - 3
+                    if middle_count > 0:
+                        st.markdown(f"**📋 ... {middle_count} more conversations in this session ...**")
+                        st.markdown("")
+                    
+                    # Show last conversation
+                    if len(conversation_pairs) > 2:
+                        st.markdown("**🔹 Latest conversation:**")
+                        last_pair = conversation_pairs[-1]
+                        st.markdown(f"**You:** {last_pair['message'][:200]}{'...' if len(last_pair['message']) > 200 else ''}")
+                        st.markdown(f"**Hana-chan:** {last_pair['response'][:200]}{'...' if len(last_pair['response']) > 200 else ''}")
+                    
+                    # Show full session option
+                    if st.button(f"📖 Show All {conv_count} Conversations", key=f"show_all_{i}"):
+                        st.markdown("**🔹 Complete Session:**")
+                        for j, pair in enumerate(conversation_pairs, 1):
+                            with st.container():
+                                st.markdown(f"**Chat {j}:**")
+                                st.markdown(f"**You:** {pair['message']}")
+                                st.markdown(f"**Hana-chan:** {pair['response']}")
+                                if j < len(conversation_pairs):
+                                    st.markdown("---")
+                else:
+                    # Show all conversations for shorter sessions
+                    st.markdown("**🔹 Complete Session:**")
+                    for j, pair in enumerate(conversation_pairs, 1):
+                        with st.container():
+                            st.markdown(f"**Chat {j}:**")
+                            st.markdown(f"**You:** {pair['message']}")
+                            st.markdown(f"**Hana-chan:** {pair['response']}")
+                            if j < len(conversation_pairs):
+                                st.markdown("---")
+                
+                # Session summary
+                if session['total_characters'] > 0:
+                    st.markdown("---")
+                    st.caption(f"📊 Session stats: {session['total_characters']} characters total")
     else:
-        st.info("No conversations yet. Start chatting with Hana-chan!")
+        st.info("No chat sessions yet. Start chatting with Hana-chan!")
+    
+    # Sentiment Analysis Summary
+    st.subheader("📊 Emotional Insights & Daily Summary")
+    
+    # Add refresh button for sentiment data too
+    col_refresh_sent, col_info_sent = st.columns([1, 4])
+    with col_refresh_sent:
+        if st.button("🔄 Refresh Insights", help="Refresh emotional insights from database"):
+            st.session_state.cached_daily_summaries = None
+            st.session_state.cached_recent_sentiment = None
+            st.rerun()
+    
+    with col_info_sent:
+        if st.session_state.cached_daily_summaries is not None:
+            st.caption("📊 Emotional insights are cached for better performance.")
+    
+    # Load daily sentiment summaries (cached)
+    if (st.session_state.cached_daily_summaries is None or 
+        st.session_state.cached_user_id != current_user['id']):
+        st.session_state.cached_daily_summaries = db.get_daily_sentiment_summary(current_user['id'], days=7)
+    
+    daily_summaries = st.session_state.cached_daily_summaries
+    
+    if daily_summaries:
+        st.markdown("**📈 Your Week at a Glance:**")
+        
+        # Create columns for metrics
+        col1, col2, col3 = st.columns(3)
+        
+        # Calculate weekly averages
+        week_sentiment = sum(day['avg_sentiment'] for day in daily_summaries) / len(daily_summaries)
+        week_engagement = sum(day['avg_engagement'] for day in daily_summaries) / len(daily_summaries)
+        total_conversations = sum(day['conversation_count'] for day in daily_summaries)
+        
+        with col1:
+            sentiment_emoji = "😊" if week_sentiment > 0.7 else "😐" if week_sentiment > 0.4 else "😔"
+            st.metric("Weekly Mood", f"{sentiment_emoji} {week_sentiment:.1f}/1.0")
+        
+        with col2:
+            engagement_emoji = "🚀" if week_engagement > 0.7 else "👍" if week_engagement > 0.4 else "😴"
+            st.metric("Engagement Level", f"{engagement_emoji} {week_engagement:.1f}/1.0")
+        
+        with col3:
+            st.metric("Total Chats", f"💬 {total_conversations}")
+        
+        # Daily breakdown
+        st.markdown("**📅 Daily Breakdown:**")
+        for day in daily_summaries:
+            with st.expander(f"{day['date']} - {day['conversation_count']} conversations"):
+                col_a, col_b = st.columns(2)
+                
+                with col_a:
+                    mood_emoji = "😊" if day['avg_sentiment'] > 0.7 else "😐" if day['avg_sentiment'] > 0.4 else "😔"
+                    st.metric("Daily Mood", f"{mood_emoji} {day['avg_sentiment']}/1.0")
+                
+                with col_b:
+                    energy_emoji = "⚡" if day['avg_engagement'] > 0.7 else "👍" if day['avg_engagement'] > 0.4 else "😴"
+                    st.metric("Energy Level", f"{energy_emoji} {day['avg_engagement']}/1.0")
+                
+                st.markdown("**Daily Summary:**")
+                # Split long summaries and show key points
+                summary_parts = day['daily_summary'].split(' | ')
+                for part in summary_parts[:3]:  # Show first 3 summaries
+                    if part.strip():
+                        st.write(f"• {part.strip()}")
+                
+                if len(summary_parts) > 3:
+                    st.write(f"• ... and {len(summary_parts) - 3} more conversations")
+    
+    # Recent Emotional Analysis
+    if (st.session_state.cached_recent_sentiment is None or 
+        st.session_state.cached_user_id != current_user['id']):
+        st.session_state.cached_recent_sentiment = db.get_recent_sentiment_analysis(current_user['id'], limit=3)
+    
+    recent_sentiment = st.session_state.cached_recent_sentiment
+    
+    if recent_sentiment:
+        st.markdown("**🎭 Recent Emotional Patterns:**")
+        
+        for i, analysis in enumerate(recent_sentiment, 1):
+            with st.expander(f"Analysis {i} - {analysis['analysis_date'][:10]}"):
+                col_x, col_y = st.columns(2)
+                
+                with col_x:
+                    st.markdown("**Emotions Detected:**")
+                    emotions = analysis['emotions_detected']
+                    if emotions:
+                        emotion_text = ", ".join([f"**{emotion}**" for emotion in emotions[:4]])
+                        st.markdown(emotion_text)
+                    else:
+                        st.write("Neutral conversation")
+                
+                with col_y:
+                    st.markdown("**Main Topics:**")
+                    topics = analysis['main_topics']
+                    if topics:
+                        topic_text = ", ".join([f"*{topic}*" for topic in topics[:3]])
+                        st.markdown(topic_text)
+                    else:
+                        st.write("General conversation")
+                
+                if analysis['emotional_summary']:
+                    st.markdown(f"**Summary:** {analysis['emotional_summary']}")
+                
+                if analysis['mood_progression']:
+                    st.markdown(f"**Mood Journey:** {analysis['mood_progression']}")
+    else:
+        st.info("💫 Start chatting with Hana-chan to see your emotional insights!")
     
     # Quick actions
     st.markdown("---")
@@ -614,7 +796,7 @@ def show_my_account():
     
     with col3:
         if st.button("Analyze Social Media", use_container_width=True):
-            st.info("Go to 'Social Media Analysis' page")
+            st.info("Go to 'Social Media Analysis' page for insights")
 
 def show_admin_panel():
     st.header("⚙️ Admin Panel")
@@ -760,8 +942,8 @@ def show_chat():
         for conv in conversations:
             chat_history.append({"role": "user", "content": conv['message']})
             chat_history.append({"role": "assistant", "content": conv['response']})
-        # Reverse to show oldest first
-        st.session_state.conversation_history = list(reversed(chat_history))
+        # Conversations are now in correct chronological order (oldest first)
+        st.session_state.conversation_history = chat_history
     
     # Load user context
     if not st.session_state.user_context and current_user.get('user_context'):
@@ -812,10 +994,57 @@ def show_chat():
         st.markdown("""
         <div style="display: flex; justify-content: flex-start; margin: 10px 0;">
             <div style="background: #f0f2f5; color: #1c1e21; padding: 12px 16px; 
-                        border-radius: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <strong>🌸 Hana-chan:</strong> <span style="color: #666;">typing...</span>
+                        border-radius: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+                        display: flex; align-items: center;">
+                <strong>🌸 Hana-chan:</strong>
+                <div style="margin-left: 10px; display: flex; align-items: center;">
+                    <div class="typing-indicator">
+                        <div class="typing-circle"></div>
+                        <div class="typing-circle"></div>
+                        <div class="typing-circle"></div>
+                    </div>
+                </div>
             </div>
         </div>
+        
+        <style>
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .typing-circle {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #999;
+            animation: typing 1.4s ease-in-out infinite;
+        }
+        
+        .typing-circle:nth-child(1) {
+            animation-delay: 0ms;
+        }
+        
+        .typing-circle:nth-child(2) {
+            animation-delay: 200ms;
+        }
+        
+        .typing-circle:nth-child(3) {
+            animation-delay: 400ms;
+        }
+        
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.4;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+        </style>
         """, unsafe_allow_html=True)
     
     # Chat input with social media styling
@@ -844,16 +1073,27 @@ def show_chat():
         # Increment counter to create new input field
         st.session_state.message_counter += 1
         
-        # Set loading state
-        st.session_state.chat_loading = True
+        # Add user message to conversation history immediately
+        st.session_state.conversation_history.append({"role": "user", "content": user_input})
         
-        # Process message immediately
-        asyncio.run(process_message_async(user_input))
+        # Set loading state and rerun to show typing indicator
+        st.session_state.chat_loading = True
+        st.session_state.pending_message = user_input
+        st.rerun()
+    
+    # Process pending message if there is one
+    if st.session_state.get('pending_message') and st.session_state.chat_loading:
+        message = st.session_state.pending_message
+        # Clear the pending message
+        st.session_state.pending_message = None
+        
+        # Process message
+        asyncio.run(process_message_async(message))
         
         # Clear loading state
         st.session_state.chat_loading = False
         
-        # Rerun to update the chat
+        # Rerun to update the chat with the response
         st.rerun()
     
     # Show conversation analysis status (non-blocking)
@@ -893,57 +1133,76 @@ async def process_message_async(message):
         response = await chatbot_agent.process({
             "message": message,
             "context": st.session_state.user_context or {},
-            "history": st.session_state.conversation_history
+            "history": st.session_state.conversation_history,
+            "user_profile": {
+                "name": current_user.get('name', ''),
+                "age": current_user.get('age', ''),
+                "occupation": current_user.get('occupation', ''),
+                "interests": current_user.get('interests', ''),
+                "auth_type": current_user.get('auth_type', '')
+            }
         })
         
-        # Update conversation history
-        st.session_state.conversation_history.append({"role": "user", "content": message})
+        # Update conversation history with just the assistant response
         st.session_state.conversation_history.append({"role": "assistant", "content": response})
         
-        # Start background analysis (non-blocking)
-        asyncio.create_task(background_conversation_analysis())
+        # Save conversation to database immediately
+        conversation_id = None
+        if current_user:
+            conversation_id = db.save_conversation(
+                user_id=current_user['id'],
+                message=message,
+                response=response,
+                satisfaction_score=0.8  # Default score, will be updated by background analysis
+            )
+        
+        # Start background analysis (non-blocking) with conversation ID
+        asyncio.create_task(background_conversation_analysis(current_user['id'], conversation_id))
         
     except Exception as e:
         st.error(f"Error processing message: {str(e)}")
 
-async def background_conversation_analysis():
+async def background_conversation_analysis(user_id, conversation_id):
     """Run conversation analysis in the background"""
     try:
-        # Get current user
-        current_user = auth.get_current_user()
-        if not current_user:
-            return
-        
         # Wait a bit to avoid overwhelming the system
         await asyncio.sleep(2)
         
-        # Process with management agent
+        # Process with management agent (includes sentiment analysis now)
         result = await management_agent.process({
             "conversation": st.session_state.conversation_history,
             "user_context": st.session_state.user_context or {}
         })
         
-        # Update session state
+        # Update session state with all analysis results
         st.session_state.satisfaction_metrics = result
         st.session_state.last_analysis_time = time.time()
         
-        # Save conversation to database for the current user
-        if st.session_state.conversation_history:
-            last_user_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
-                                if msg['role'] == 'user'), None)
-            last_assistant_msg = next((msg['content'] for msg in reversed(st.session_state.conversation_history) 
-                                    if msg['role'] == 'assistant'), None)
-            
-            if last_user_msg and last_assistant_msg:
-                db.save_conversation(
-                    current_user['id'],
-                    last_user_msg,
-                    last_assistant_msg,
-                    result.get("satisfaction_score", 0.0)
-                )
+        # Save sentiment analysis to database if we have the data
+        if conversation_id and "sentiment_analysis" in result:
+            db.save_sentiment_analysis(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                sentiment_data=result["sentiment_analysis"]
+            )
+        
+        # Refresh cached conversations if this user's cache exists
+        if (st.session_state.cached_user_id == user_id and 
+            st.session_state.cached_session_conversations is not None):
+            # Update the cached conversations with the latest data
+            st.session_state.cached_session_conversations = db.get_user_conversations_by_session(user_id, limit=5)
+        
+        # Refresh cached sentiment data if this user's cache exists
+        if (st.session_state.cached_user_id == user_id and 
+            (st.session_state.cached_daily_summaries is not None or 
+             st.session_state.cached_recent_sentiment is not None)):
+            # Update sentiment caches with the latest data
+            st.session_state.cached_daily_summaries = db.get_daily_sentiment_summary(user_id, days=7)
+            st.session_state.cached_recent_sentiment = db.get_recent_sentiment_analysis(user_id, limit=3)
         
     except Exception as e:
         # Silently handle errors in background task
+        print(f"Background analysis error: {str(e)}")
         pass
 
 def show_social_media_analysis():

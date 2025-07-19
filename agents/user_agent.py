@@ -47,15 +47,17 @@ CONVERSATION TOPICS:
         
         # Only use LLM for complex profiles with substantial content
         if len(str(interests)) > 50:
-            prompt = f"""Analyze this user profile quickly and provide a concise summary:
-Name: {name}, Age: {age}, Interests: {interests}
+            prompt = f"""OMG, I'm SO excited to analyze this amazing person! 🎉✨ Let me dive into their awesome profile!
 
-Format:
-KEY INTERESTS: [2-3 main interests]
-PERSONALITY TRAITS: [2-3 traits]
-CONVERSATION TOPICS: [2-3 topics]
+Name: {name} (what a great name! 😄), Age: {age}, Occupation: {profile.get('occupation', 'Not specified')}, Interests: {interests}
 
-Keep it brief and focused."""
+I need to create an ENERGETIC and POSITIVE analysis! Please format it like this:
+
+KEY INTERESTS: [2-3 main interests with enthusiasm!]
+PERSONALITY TRAITS: [2-3 positive traits with energy!]
+CONVERSATION TOPICS: [2-3 exciting topics to chat about!]
+
+Make it sound fun, warm, and exciting! Use lots of positive energy! 🌸🎊"""
             
             analysis = self.llm.invoke(prompt)
             if hasattr(analysis, 'content'):
@@ -541,18 +543,19 @@ Note: Analysis based on URL structure and platform behavior patterns due to acce
         # Combine all content and analyze in a single LLM call
         combined_content = " ".join(contents)[:3000]  # Increased limit for URL analysis content
         
-        prompt = f"""Analyze this social media information and provide a comprehensive summary. This may include URL-based analysis and actual content:
+        prompt = f"""WOW! 🤩 I'm absolutely THRILLED to analyze this person's social media presence! This is going to be SO fun! ✨🎉
 
 Content: {combined_content}
 
-Provide a structured analysis with:
-KEY ACTIVITIES: [main activities identified from available data]
-INTERESTS & THEMES: [interests and content themes detected]
-ENGAGEMENT STYLE: [communication and engagement patterns]
-PLATFORM BEHAVIOR: [how they use different platforms]
-PERSONALITY INSIGHTS: [personality traits that can be inferred]
+Time to create an AMAZING and ENERGETIC analysis! Please give me:
 
-Focus on actionable insights for conversation and be clear about what's based on URL analysis vs actual content."""
+KEY ACTIVITIES: [main activities with lots of excitement! 🚀]
+INTERESTS & THEMES: [super cool interests and themes! 🎨]
+ENGAGEMENT STYLE: [how they communicate - make it sound awesome! 💬]
+PLATFORM BEHAVIOR: [their platform style with positive vibes! 📱]
+PERSONALITY INSIGHTS: [wonderful personality traits - focus on the positives! ✨]
+
+Make this analysis WARM, ENERGETIC, and EXCITING! Use positive language and make it sound like we're discovering something amazing about this fantastic person! Focus on actionable insights that will make conversations more fun! 🌸🎊"""
         
         try:
             summary = self.llm.invoke(prompt)
@@ -609,7 +612,7 @@ class UserAgent(BaseAgent):
         
         # Create the prompt template
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful assistant that analyzes user profiles and social media content."),
+            ("system", "You are Hana-chan's super enthusiastic profile analyzer! 🎯✨ You love discovering awesome things about people and getting excited about their interests and social media! Analyze with energy and positivity! 🌸🎉"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])

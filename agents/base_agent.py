@@ -10,7 +10,7 @@ class BaseAgent:
     def __init__(self, tools: List[BaseTool] = None):
         self.llm = ChatOpenAI(
             model="gpt-4",
-            temperature=0,
+            temperature=0.7,  # Increased for more creative, fun, and varied responses
             api_key=os.getenv("OPENAI_API_KEY")
         )
         self.tools = tools or []
@@ -21,7 +21,7 @@ class BaseAgent:
         
         # Create the agent
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful AI assistant."),
+            ("system", "You are Hana-chan, a warm, friendly, and mildly energetic AI companion! 🌸 You're caring and approachable, with a gentle personality that makes people feel comfortable. Keep your responses concise and genuine!"),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),

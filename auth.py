@@ -44,7 +44,7 @@ class SimpleAuth:
         existing_user = self.db.get_user_by_email(email)
         if existing_user:
             if existing_user.get('auth_type') == 'google':
-                return False, "This email is already registered with Google sign-in. Please use Google to sign in."
+                return False, "This email is already registered with a different authentication method."
             else:
                 return False, "An account with this email already exists"
         
@@ -76,9 +76,9 @@ class SimpleAuth:
             return False, "No account found with this email"
         
         # Check if this is a password-based account
-        if user.get('auth_type') != 'password' or not user.get('password_hash'):
+        if user.get('auth_type') not in ['password', 'hybrid'] or not user.get('password_hash'):
             if user.get('auth_type') == 'google':
-                return False, "This email is registered with Google sign-in. Please use Google to sign in."
+                return False, "This email is registered with a different authentication method."
             else:
                 return False, "This account uses a different login method"
         
@@ -98,7 +98,7 @@ class SimpleAuth:
         if existing_user:
             # Check if this was originally a password account
             if existing_user.get('auth_type') == 'password':
-                return False, "This email is already registered with a password. Please use your email and password to sign in, or contact support to link your Google account."
+                return False, "This email is already registered with a password. Please use your email and password to sign in."
             
             # Update Google info and last login
             self.db.update_user_profile(existing_user['id'], {
@@ -183,22 +183,23 @@ def show_login_page():
     auth = SimpleAuth()
     
     # Check for existing Google authentication first
-    google_user = auth.google_oauth.get_user_from_token()
-    if google_user:
-        # User is authenticated with Google, log them in
-        success, result = auth.login_with_google(google_user)
-        if success:
-            st.session_state['authenticated'] = True
-            st.session_state['user_id'] = result
-            st.success("✅ Welcome back! You're signed in with Google.")
-            time.sleep(1)
-            st.rerun()
-        else:
-            st.error(f"❌ {result}")
-            auth.google_oauth.logout()  # Clear invalid token
+    # google_user = auth.google_oauth.get_user_from_token()
+    # if google_user:
+    #     # User is authenticated with Google, log them in
+    #     success, result = auth.login_with_google(google_user)
+    #     if success:
+    #         st.session_state['authenticated'] = True
+    #         st.session_state['user_id'] = result
+    #         st.success("✅ Welcome back! You're signed in with Google.")
+    #         time.sleep(1)
+    #         st.rerun()
+    #     else:
+    #         st.error(f"❌ {result}")
+    #         auth.google_oauth.logout()  # Clear invalid token
     
     # Create tabs for different login methods
-    tab1, tab2, tab3 = st.tabs(["🔐 Login", "✨ Create Account", "🔐 Google Login"])
+    # tab1, tab2, tab3 = st.tabs(["🔐 Login", "✨ Create Account", "🔐 Google Login"])
+    tab1, tab2 = st.tabs(["🔐 Login", "✨ Create Account"])
     
     with tab1:
         st.header("Login to Your Account")
@@ -256,43 +257,43 @@ def show_login_page():
                 else:
                     st.error(f"❌ {result}")
     
-    with tab3:
-        st.header("Sign in with Google")
+    # with tab3:
+    #     st.header("Sign in with Google")
         
-        if not auth.google_oauth.is_configured():
-            st.warning("🔧 **Google Sign-in Setup Required**")
-            st.markdown("""
-            To enable Google sign-in, you need to:
+    #     if not auth.google_oauth.is_configured():
+    #         st.warning("🔧 **Google Sign-in Setup Required**")
+    #         st.markdown("""
+    #         To enable Google sign-in, you need to:
             
-            1. **Create a Google Cloud Project** at [Google Cloud Console](https://console.cloud.google.com/)
-            2. **Enable Google+ API**
-            3. **Create OAuth 2.0 credentials**
-            4. **Set environment variables:**
-               ```bash
-               export GOOGLE_CLIENT_ID="your-client-id"
-               export GOOGLE_CLIENT_SECRET="your-client-secret"
-               export GOOGLE_REDIRECT_URI="http://localhost:8501"
-               export JWT_SECRET_KEY="your-secret-key"
-               ```
-            5. **Add authorized redirect URI:** `http://localhost:8501`
+    #         1. **Create a Google Cloud Project** at [Google Cloud Console](https://console.cloud.google.com/)
+    #         2. **Enable Google+ API**
+    #         3. **Create OAuth 2.0 credentials**
+    #         4. **Set environment variables:**
+    #            ```bash
+    #            export GOOGLE_CLIENT_ID="your-client-id"
+    #            export GOOGLE_CLIENT_SECRET="your-client-secret"
+    #            export GOOGLE_REDIRECT_URI="http://localhost:8501"
+    #            export JWT_SECRET_KEY="your-secret-key"
+    #            ```
+    #         5. **Add authorized redirect URI:** `http://localhost:8501`
             
-            📖 [Detailed Setup Guide](https://developers.google.com/identity/protocols/oauth2)
-            """)
-        else:
-            # Check for Google OAuth callback
-            google_user = auth.google_oauth.show_login_button()
-            if google_user:
-                # Handle successful Google authentication
-                success, result = auth.login_with_google(google_user)
-                if success:
-                    st.session_state['authenticated'] = True
-                    st.session_state['user_id'] = result
-                    st.success("✅ Google sign-in successful!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error(f"❌ {result}")
-                    auth.google_oauth.logout()
+    #         📖 [Detailed Setup Guide](https://developers.google.com/identity/protocols/oauth2)
+    #         """)
+    #     else:
+    #         # Check for Google OAuth callback
+    #         google_user = auth.google_oauth.show_login_button()
+    #         if google_user:
+    #             # Handle successful Google authentication
+    #             success, result = auth.login_with_google(google_user)
+    #             if success:
+    #                 st.session_state['authenticated'] = True
+    #                 st.session_state['user_id'] = result
+    #                 st.success("✅ Google sign-in successful!")
+    #                 time.sleep(1)
+    #                 st.rerun()
+    #             else:
+    #                 st.error(f"❌ {result}")
+    #                 auth.google_oauth.logout()
     
     # App features preview
     st.markdown("---")

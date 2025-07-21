@@ -2,7 +2,7 @@ import sqlite3
 import json
 from typing import Dict, Any, Optional, List
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class Database:
     def __init__(self, db_path: str = "chatbot.db"):
@@ -69,12 +69,33 @@ class Database:
                 )
             ''')
             
+            # Create social media accounts table for OAuth tokens
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS social_media_accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    platform TEXT NOT NULL,
+                    platform_user_id TEXT,
+                    platform_username TEXT,
+                    access_token TEXT,
+                    refresh_token TEXT,
+                    token_expires_at TIMESTAMP,
+                    account_data TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    FOREIGN KEY (user_id) REFERENCES users (id),
+                    UNIQUE(user_id, platform)
+                )
+            ''')
+            
             # Add indexes for better performance (only after ensuring columns exist)
             try:
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations (user_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_sentiment_user_date ON sentiment_analysis (user_id, date)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_social_media_user_platform ON social_media_accounts (user_id, platform)')
             except sqlite3.OperationalError:
                 # If indexes fail, continue - they'll be created after migration
                 pass
@@ -639,4 +660,288 @@ class Database:
                 return results
         except Exception as e:
             print(f"Error getting recent sentiment analysis: {str(e)}")
+            return []
+
+    def save_social_media_account(self, user_id: int, platform: str, account_data: Dict[str, Any]) -> bool:
+        """Save or update social media account authentication data."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Calculate token expiration if provided
+                token_expires_at = None
+                if 'expires_in' in account_data:
+                    expires_in = account_data['expires_in']
+                    token_expires_at = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+                
+                cursor.execute('''
+                    INSERT OR REPLACE INTO social_media_accounts 
+                    (user_id, platform, platform_user_id, platform_username, access_token, 
+                     refresh_token, token_expires_at, account_data, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    user_id,
+                    platform,
+                    account_data.get('user_id', account_data.get('id')),
+                    account_data.get('username', account_data.get('name')),
+                    account_data.get('access_token'),
+                    account_data.get('refresh_token'),
+                    token_expires_at,
+                    json.dumps(account_data)
+                ))
+                
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error saving social media account: {str(e)}")
+            return False
+
+    def get_social_media_accounts(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get all connected social media accounts for a user."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT platform, platform_user_id, platform_username, access_token,
+                           refresh_token, token_expires_at, account_data, created_at, 
+                           updated_at, is_active
+                    FROM social_media_accounts
+                    WHERE user_id = ? AND is_active = 1
+                    ORDER BY created_at DESC
+                ''', (user_id,))
+                
+                accounts = []
+                for row in cursor.fetchall():
+                    # Parse account data safely
+                    account_data = {}
+                    try:
+                        account_data = json.loads(row[6]) if row[6] else {}
+                    except:
+                        account_data = {}
+                    
+                    # Check if token is expired
+                    is_expired = False
+                    if row[5]:  # token_expires_at
+                        try:
+                            expires_at = datetime.fromisoformat(row[5])
+                            is_expired = datetime.now() > expires_at
+                        except:
+                            is_expired = False
+                    
+                    accounts.append({
+                        'platform': row[0],
+                        'platform_user_id': row[1],
+                        'platform_username': row[2],
+                        'access_token': row[3],
+                        'refresh_token': row[4],
+                        'token_expires_at': row[5],
+                        'account_data': account_data,
+                        'created_at': row[7],
+                        'updated_at': row[8],
+                        'is_active': bool(row[9]),
+                        'is_expired': is_expired
+                    })
+                
+                return accounts
+        except Exception as e:
+            print(f"Error getting social media accounts: {str(e)}")
+            return []
+
+    def get_social_media_account(self, user_id: int, platform: str) -> Optional[Dict[str, Any]]:
+        """Get a specific social media account for a user."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT platform, platform_user_id, platform_username, access_token,
+                           refresh_token, token_expires_at, account_data, created_at, 
+                           updated_at, is_active
+                    FROM social_media_accounts
+                    WHERE user_id = ? AND platform = ? AND is_active = 1
+                ''', (user_id, platform))
+                
+                row = cursor.fetchone()
+                if row:
+                    # Parse account data safely
+                    account_data = {}
+                    try:
+                        account_data = json.loads(row[6]) if row[6] else {}
+                    except:
+                        account_data = {}
+                    
+                    # Check if token is expired
+                    is_expired = False
+                    if row[5]:  # token_expires_at
+                        try:
+                            expires_at = datetime.fromisoformat(row[5])
+                            is_expired = datetime.now() > expires_at
+                        except:
+                            is_expired = False
+                    
+                    return {
+                        'platform': row[0],
+                        'platform_user_id': row[1],
+                        'platform_username': row[2],
+                        'access_token': row[3],
+                        'refresh_token': row[4],
+                        'token_expires_at': row[5],
+                        'account_data': account_data,
+                        'created_at': row[7],
+                        'updated_at': row[8],
+                        'is_active': bool(row[9]),
+                        'is_expired': is_expired
+                    }
+                
+                return None
+        except Exception as e:
+            print(f"Error getting social media account: {str(e)}")
+            return None
+
+    def update_social_media_token(self, user_id: int, platform: str, access_token: str, 
+                                 refresh_token: str = None, expires_in: int = None) -> bool:
+        """Update social media account tokens."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Calculate token expiration if provided
+                token_expires_at = None
+                if expires_in:
+                    token_expires_at = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+                
+                if refresh_token:
+                    cursor.execute('''
+                        UPDATE social_media_accounts 
+                        SET access_token = ?, refresh_token = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND platform = ?
+                    ''', (access_token, refresh_token, token_expires_at, user_id, platform))
+                else:
+                    cursor.execute('''
+                        UPDATE social_media_accounts 
+                        SET access_token = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND platform = ?
+                    ''', (access_token, token_expires_at, user_id, platform))
+                
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error updating social media token: {str(e)}")
+            return False
+
+    def disconnect_social_media_account(self, user_id: int, platform: str) -> bool:
+        """Disconnect a social media account by setting it as inactive."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    UPDATE social_media_accounts 
+                    SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND platform = ?
+                ''', (user_id, platform))
+                
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error disconnecting social media account: {str(e)}")
+            return False
+
+    def save_social_media_posts(self, user_id: int, platform: str, posts: List[Dict[str, Any]]) -> bool:
+        """Save fetched social media posts for analysis."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Create a table for social media posts if it doesn't exist
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS social_media_posts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        platform TEXT,
+                        post_id TEXT,
+                        content TEXT,
+                        media_url TEXT,
+                        post_url TEXT,
+                        created_at_platform TIMESTAMP,
+                        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        post_data TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        UNIQUE(user_id, platform, post_id)
+                    )
+                ''')
+                
+                # Insert posts
+                for post in posts:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO social_media_posts
+                        (user_id, platform, post_id, content, media_url, post_url, 
+                         created_at_platform, post_data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        user_id,
+                        platform,
+                        post.get('id'),
+                        post.get('text', ''),
+                        post.get('media_url', post.get('full_picture')),
+                        post.get('url', post.get('permalink', post.get('permalink_url'))),
+                        post.get('created_at', post.get('timestamp', post.get('created_time'))),
+                        json.dumps(post)
+                    ))
+                
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error saving social media posts: {str(e)}")
+            return False
+
+    def get_social_media_posts(self, user_id: int, platform: str = None, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get saved social media posts for a user."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                if platform:
+                    cursor.execute('''
+                        SELECT platform, post_id, content, media_url, post_url,
+                               created_at_platform, fetched_at, post_data
+                        FROM social_media_posts
+                        WHERE user_id = ? AND platform = ?
+                        ORDER BY created_at_platform DESC
+                        LIMIT ?
+                    ''', (user_id, platform, limit))
+                else:
+                    cursor.execute('''
+                        SELECT platform, post_id, content, media_url, post_url,
+                               created_at_platform, fetched_at, post_data
+                        FROM social_media_posts
+                        WHERE user_id = ?
+                        ORDER BY created_at_platform DESC
+                        LIMIT ?
+                    ''', (user_id, limit))
+                
+                posts = []
+                for row in cursor.fetchall():
+                    # Parse post data safely
+                    post_data = {}
+                    try:
+                        post_data = json.loads(row[7]) if row[7] else {}
+                    except:
+                        post_data = {}
+                    
+                    posts.append({
+                        'platform': row[0],
+                        'post_id': row[1],
+                        'content': row[2],
+                        'media_url': row[3],
+                        'post_url': row[4],
+                        'created_at_platform': row[5],
+                        'fetched_at': row[6],
+                        'post_data': post_data
+                    })
+                
+                return posts
+        except Exception as e:
+            print(f"Error getting social media posts: {str(e)}")
             return [] 

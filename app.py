@@ -114,7 +114,8 @@ def main():
     navigation_options = [
         "🏠 Profile Setup", 
         "💬 Hana Chat", 
-        "📱 Social Media Analysis"
+        "📱 Social Media Analysis",
+        "🔗 Social Media Accounts"
     ]
     
     # Check if current user is admin
@@ -140,6 +141,8 @@ def main():
         show_chat()
     elif page == "📱 Social Media Analysis":
         show_social_media_analysis()
+    elif page == "🔗 Social Media Accounts":
+        show_social_media_accounts()
     elif page == "👥 User Management" and is_admin:
         show_user_management()
     elif page == "⚙️ Admin Panel" and is_admin:
@@ -1388,6 +1391,244 @@ async def analyze_social_media_urls(urls):
         return result
     except Exception as e:
         return f"Error analyzing URLs: {str(e)}"
+
+def show_social_media_accounts():
+    st.header("🔗 Social Media Accounts")
+    st.markdown("**Connect and Fetch Recent Posts from Your Social Media Accounts**")
+    
+    # Platform badges
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    with col1:
+        st.markdown("📱 **Instagram**")
+    with col2:
+        st.markdown("🐦 **Twitter/X**")
+    with col3:
+        st.markdown("🧵 **Threads**")
+    with col4:
+        st.markdown("💼 **LinkedIn**")
+    with col5:
+        st.markdown("🎵 **TikTok**")
+    with col6:
+        st.markdown("📺 **YouTube**")
+    
+    st.markdown("---")
+    
+    # Platform selection
+    platform = st.selectbox("Select a platform to connect", ["Instagram", "Twitter/X", "Threads", "LinkedIn", "TikTok", "YouTube"])
+    
+    if platform == "Instagram":
+        show_instagram_accounts()
+    elif platform == "Twitter/X":
+        show_twitter_accounts()
+    elif platform == "Threads":
+        show_threads_accounts()
+    elif platform == "LinkedIn":
+        show_linkedin_accounts()
+    elif platform == "TikTok":
+        show_tiktok_accounts()
+    elif platform == "YouTube":
+        show_youtube_accounts()
+    else:
+        st.info("Please select a platform to connect.")
+
+def show_instagram_accounts():
+    st.subheader("👤 Instagram Accounts")
+    st.info("Connect your Instagram account to fetch recent posts and insights.")
+    
+    # Placeholder for Instagram account connection logic
+    # This would involve authenticating with Instagram API
+    # For now, we'll just show a message
+    st.write("""
+    To connect your Instagram account, you'll need to:
+    1. Create an Instagram Developer Account (https://developers.facebook.com/apps)
+    2. Create an App ID and App Secret
+    3. Register your redirect URI (e.g., http://localhost:8501/social-media-accounts)
+    4. Obtain an Access Token with the necessary permissions (e.g., user_profile, user_media)
+    5. Enter your App ID, App Secret, and Access Token here.
+    """)
+    
+    # Example input fields (replace with actual UI elements for user input)
+    st.subheader("Example Input (Replace with actual credentials)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_input("App ID", placeholder="Your Instagram App ID")
+    with col2:
+        st.text_input("App Secret", placeholder="Your Instagram App Secret")
+    st.text_input("Access Token", placeholder="Your Instagram Access Token")
+    
+    if st.button("Connect Instagram Account"):
+        st.info("Attempting to connect Instagram account...")
+        # In a real app, you'd call an Instagram API endpoint here
+        # to verify the token and fetch user info/posts.
+        # For this example, we'll just simulate success.
+        st.success("Instagram account connected successfully! (Simulated)")
+        st.rerun()
+
+def show_twitter_accounts():
+    st.subheader("👤 Twitter/X Accounts")
+    st.info("Connect your Twitter/X account to fetch recent tweets and replies.")
+    
+    # Placeholder for Twitter/X account connection logic
+    # This would involve authenticating with Twitter API
+    # For now, we'll just show a message
+    st.write("""
+    To connect your Twitter/X account, you'll need to:
+    1. Create a Twitter Developer Account (https://developer.twitter.com/en/portal/dashboard)
+    2. Create a Project and get your API Key, API Secret, Access Token, and Access Token Secret.
+    3. Register your Callback URL (e.g., http://localhost:8501/social-media-accounts)
+    4. Obtain an Access Token with the necessary permissions (e.g., read, write, tweet.read, tweet.write).
+    5. Enter your API Key, API Secret, Access Token, and Access Token Secret here.
+    """)
+    
+    # Example input fields (replace with actual UI elements for user input)
+    st.subheader("Example Input (Replace with actual credentials)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_input("API Key", placeholder="Your Twitter API Key")
+    with col2:
+        st.text_input("API Secret", placeholder="Your Twitter API Secret")
+    st.text_input("Access Token", placeholder="Your Twitter Access Token")
+    st.text_input("Access Token Secret", placeholder="Your Twitter Access Token Secret")
+    
+    if st.button("Connect Twitter/X Account"):
+        st.info("Attempting to connect Twitter/X account...")
+        # In a real app, you'd call a Twitter API endpoint here
+        # to verify the token and fetch user info/tweets.
+        # For this example, we'll just simulate success.
+        st.success("Twitter/X account connected successfully! (Simulated)")
+        st.rerun()
+
+def show_threads_accounts():
+    st.subheader("�� Threads Accounts")
+    st.info("Connect your Threads account to fetch recent posts and replies.")
+    
+    # Placeholder for Threads account connection logic
+    # This would involve authenticating with Threads API
+    # For now, we'll just show a message
+    st.write("""
+    To connect your Threads account, you'll need to:
+    1. Create a Meta Developer Account (https://developers.facebook.com/apps)
+    2. Create an App ID and App Secret
+    3. Register your redirect URI (e.g., http://localhost:8501/social-media-accounts)
+    4. Obtain an Access Token with the necessary permissions (e.g., user_profile, user_media).
+    5. Enter your App ID, App Secret, and Access Token here.
+    """)
+    
+    # Example input fields (replace with actual UI elements for user input)
+    st.subheader("Example Input (Replace with actual credentials)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_input("App ID", placeholder="Your Threads App ID")
+    with col2:
+        st.text_input("App Secret", placeholder="Your Threads App Secret")
+    st.text_input("Access Token", placeholder="Your Threads Access Token")
+    
+    if st.button("Connect Threads Account"):
+        st.info("Attempting to connect Threads account...")
+        # In a real app, you'd call a Threads API endpoint here
+        # to verify the token and fetch user info/posts.
+        # For this example, we'll just simulate success.
+        st.success("Threads account connected successfully! (Simulated)")
+        st.rerun()
+
+def show_linkedin_accounts():
+    st.subheader("👤 LinkedIn Accounts")
+    st.info("Connect your LinkedIn account to fetch recent posts and interactions.")
+    
+    # Placeholder for LinkedIn account connection logic
+    # This would involve authenticating with LinkedIn API
+    # For now, we'll just show a message
+    st.write("""
+    To connect your LinkedIn account, you'll need to:
+    1. Create a LinkedIn Developer Account (https://www.linkedin.com/developers/apps)
+    2. Create an App ID and App Secret
+    3. Register your redirect URI (e.g., http://localhost:8501/social-media-accounts)
+    4. Obtain an Access Token with the necessary permissions (e.g., r_liteprofile, r_emailaddress).
+    5. Enter your App ID, App Secret, and Access Token here.
+    """)
+    
+    # Example input fields (replace with actual UI elements for user input)
+    st.subheader("Example Input (Replace with actual credentials)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_input("App ID", placeholder="Your LinkedIn App ID")
+    with col2:
+        st.text_input("App Secret", placeholder="Your LinkedIn App Secret")
+    st.text_input("Access Token", placeholder="Your LinkedIn Access Token")
+    
+    if st.button("Connect LinkedIn Account"):
+        st.info("Attempting to connect LinkedIn account...")
+        # In a real app, you'd call a LinkedIn API endpoint here
+        # to verify the token and fetch user info/posts.
+        # For this example, we'll just simulate success.
+        st.success("LinkedIn account connected successfully! (Simulated)")
+        st.rerun()
+
+def show_tiktok_accounts():
+    st.subheader("👤 TikTok Accounts")
+    st.info("Connect your TikTok account to fetch recent videos and comments.")
+    
+    # Placeholder for TikTok account connection logic
+    # This would involve authenticating with TikTok API
+    # For now, we'll just show a message
+    st.write("""
+    To connect your TikTok account, you'll need to:
+    1. Create a TikTok Developer Account (https://developers.tiktok.com/apps)
+    2. Create an App ID and App Secret
+    3. Register your redirect URI (e.g., http://localhost:8501/social-media-accounts)
+    4. Obtain an Access Token with the necessary permissions (e.g., user_info, video.list).
+    5. Enter your App ID, App Secret, and Access Token here.
+    """)
+    
+    # Example input fields (replace with actual UI elements for user input)
+    st.subheader("Example Input (Replace with actual credentials)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_input("App ID", placeholder="Your TikTok App ID")
+    with col2:
+        st.text_input("App Secret", placeholder="Your TikTok App Secret")
+    st.text_input("Access Token", placeholder="Your TikTok Access Token")
+    
+    if st.button("Connect TikTok Account"):
+        st.info("Attempting to connect TikTok account...")
+        # In a real app, you'd call a TikTok API endpoint here
+        # to verify the token and fetch user info/videos.
+        # For this example, we'll just simulate success.
+        st.success("TikTok account connected successfully! (Simulated)")
+        st.rerun()
+
+def show_youtube_accounts():
+    st.subheader("👤 YouTube Accounts")
+    st.info("Connect your YouTube account to fetch recent videos and comments.")
+    
+    # Placeholder for YouTube account connection logic
+    # This would involve authenticating with YouTube API
+    # For now, we'll just show a message
+    st.write("""
+    To connect your YouTube account, you'll need to:
+    1. Create a Google Developer Account (https://console.cloud.google.com/apis/credentials)
+    2. Create a Project and get your API Key and Client ID.
+    3. Register your redirect URI (e.g., http://localhost:8501/social-media-accounts)
+    4. Obtain an Access Token with the necessary permissions (e.g., https://www.googleapis.com/auth/youtube.readonly).
+    5. Enter your API Key, Client ID, and Access Token here.
+    """)
+    
+    # Example input fields (replace with actual UI elements for user input)
+    st.subheader("Example Input (Replace with actual credentials)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_input("API Key", placeholder="Your YouTube API Key")
+    with col2:
+        st.text_input("Client ID", placeholder="Your YouTube Client ID")
+    st.text_input("Access Token", placeholder="Your YouTube Access Token")
+    
+    if st.button("Connect YouTube Account"):
+        st.info("Attempting to connect YouTube account...")
+        # In a real app, you'd call a YouTube API endpoint here
+        # to verify the token and fetch user info/videos.
+        # For this example, we'll just simulate success.
+        st.success("YouTube account connected successfully! (Simulated)")
+        st.rerun()
 
 if __name__ == "__main__":
     main() 
